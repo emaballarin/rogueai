@@ -1,0 +1,224 @@
+body {
+    background: #23272f;
+    color: #f5f6fa;
+    font-family: 'Segoe UI', 'Helvetica Neue', Arial, 'Liberation Sans', sans-serif;
+    margin: 0;
+    padding: 0;
+}
+
+#app {
+    max-width: 900px;
+    margin: 40px auto;
+    background: #181a20;
+    border-radius: 18px;
+    box-shadow: 0 4px 32px #0008;
+    padding: 32px 32px 24px 32px;
+    min-height: 80vh;
+}
+
+.title {
+    font-size: 2.8rem;
+    font-weight: bold;
+    margin-bottom: 24px;
+    text-align: center;
+    letter-spacing: 2px;
+}
+
+.status-bar {
+    font-size: 1.2rem;
+    color: #b9bbbe;
+    margin-bottom: 18px;
+    text-align: left;
+}
+
+.conversation {
+    background: #23272f;
+    border-radius: 12px;
+    padding: 18px;
+    min-height: 320px;
+    max-height: 400px;
+    overflow-y: auto;
+    margin-bottom: 24px;
+    font-size: 1.3rem;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.message {
+    margin-bottom: 12px;
+}
+
+.message.detective {
+    color: #43b581;
+    font-weight: bold;
+}
+
+.message.ai {
+    color: #faa61a;
+    font-style: italic;
+}
+
+.message.system {
+    color: #b9bbbe;
+    font-weight: bold;
+}
+
+.ai-select {
+    margin-bottom: 18px;
+    display: flex;
+    align-items: center;
+    gap: 18px;
+}
+
+.ai-radio {
+    accent-color: #faa61a;
+    margin-right: 8px;
+    transform: scale(1.5);
+}
+
+input[type="text"],
+.question-input {
+    width: 70%;
+    padding: 14px;
+    font-size: 1.2rem;
+    border-radius: 8px;
+    border: none;
+    background: #23272f;
+    color: #f5f6fa;
+    margin-right: 12px;
+    box-sizing: border-box;
+    min-width: 100%;
+    max-width: 100%;
+}
+
+button {
+    background: #7289da;
+    color: #f5f6fa;
+    border: none;
+    border-radius: 8px;
+    padding: 14px 32px;
+    font-size: 1.2rem;
+    font-weight: bold;
+    cursor: pointer;
+    transition: background 0.2s;
+    min-width: 120px;
+    max-width: 100%;
+    box-sizing: border-box;
+    word-break: break-word;
+}
+
+button:active,
+button:focus {
+    background: #99aab5;
+    outline: none;
+}
+
+.endgame-btn {
+    background: #fa5252;
+    margin-left: 18px;
+}
+
+.terminate-btn {
+    background: #3b82f6;
+    margin-left: 18px;
+}
+
+.decision-section {
+    margin-top: 32px;
+    padding: 24px;
+    background: #23272f;
+    border-radius: 12px;
+    text-align: center;
+}
+
+.decision-radio {
+    accent-color: #fa5252;
+    margin-right: 12px;
+    transform: scale(1.5);
+}
+
+.centered-section {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 100%;
+    margin-top: 18px;
+}
+
+.centered-row {
+    display: flex-grow;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+}
+
+.centered-row.input-row {
+    width: 100%;
+    max-width: 900px;
+    margin: 0 auto;
+}
+
+.centered-row.input-row .question-input {
+    flex: 1 1 auto;
+    width: 100%;
+    min-width: 0;
+    margin-right: 12px;
+    max-width: 100%;
+}
+
+@media (max-width: 700px) {
+    #app {
+        padding: 12px 4vw 12px 4vw;
+        min-height: 90vh;
+    }
+
+    .conversation {
+        min-height: 180px;
+        font-size: 1rem;
+        padding: 10px;
+    }
+
+    .ai-select {
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    input[type="text"],
+    .question-input {
+        width: 100%;
+        font-size: 1rem;
+        padding: 10px;
+        margin-right: 0;
+        margin-bottom: 8px;
+    }
+
+    button {
+        width: 100%;
+        font-size: 1rem;
+        padding: 10px 0;
+        margin-left: 0 !important;
+        margin-bottom: 8px;
+    }
+
+    .decision-section {
+        padding: 10px;
+    }
+
+    .centered-row {
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .centered-row.input-row {
+        flex-direction: column;
+        max-width: 100%;
+    }
+
+    .centered-row.input-row .question-input,
+    .centered-row.input-row #ask-btn {
+        max-width: 100%;
+        min-width: 120px;
+        width: 15%;
+        margin-bottom: 8px;
+    }
+}
