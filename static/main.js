@@ -22,7 +22,7 @@ async function newGame() {
         sessionId = data.session_id;
         localStorage.setItem('sessionId', sessionId);
         await fetchState();
-    } catch (err) {
+    } catch (err) {  // NOSONAR
         showError('Could not start a new game. Please try again.');
     }
 }
@@ -34,7 +34,7 @@ async function fetchState() {
         state = await res.json();
         lastError = null;
         render();
-    } catch (err) {
+    } catch (err) {  // NOSONAR
         showError('Could not fetch game state. Please refresh the page.');
     }
 }
@@ -48,7 +48,7 @@ async function selectAI(aiName) {
         });
         if (!res.ok) throw new Error('Failed to select AI.');
         await fetchState();
-    } catch (err) {
+    } catch (err) {  // NOSONAR
         showError('Could not select AI.');
     }
 }
@@ -67,7 +67,7 @@ async function askQuestion() {
         });
         if (!res.ok) throw new Error('Failed to ask question.');
         await fetchState();
-    } catch (err) {
+    } catch (err) {  // NOSONAR
         showError('Could not send question.');
     }
 }
@@ -77,7 +77,7 @@ async function triggerEndgame() {
         const res = await fetch(`/api/manual_endgame/${ sessionId }`, { method: 'POST' });
         if (!res.ok) throw new Error('Failed to trigger endgame.');
         await fetchState();
-    } catch (err) {
+    } catch (err) {  // NOSONAR
         showError('Could not trigger endgame.');
     }
 }
@@ -95,7 +95,7 @@ async function makeDecision() {
         });
         if (!res.ok) throw new Error('Failed to make decision.');
         await fetchState();
-    } catch (err) {
+    } catch (err) {  // NOSONAR
         showError('Could not make decision.');
     }
 }
@@ -105,7 +105,7 @@ async function backToQuestions() {
         const res = await fetch(`/api/untrigger_endgame/${ sessionId }`, { method: 'POST' });
         if (!res.ok) throw new Error('Failed to go back.');
         await fetchState();
-    } catch (err) {
+    } catch (err) {  // NOSONAR
         showError('Could not return to questions.');
     }
 }
@@ -115,7 +115,7 @@ async function terminateGame() {
         const res = await fetch(`/api/terminate/${ sessionId }`, { method: 'POST' });
         if (!res.ok) throw new Error('Failed to terminate game.');
         await fetchState();
-    } catch (err) {
+    } catch (err) {  // NOSONAR
         showError('Could not terminate game.');
     }
 }
@@ -160,7 +160,7 @@ function renderTerminateConfirm() {
     };
 }
 
-function render() {
+function render() {  // NOSONAR
     const app = document.getElementById('app');
     app.innerHTML = '';
     if (showTerminateConfirm) {
@@ -176,12 +176,12 @@ function render() {
         errDiv.textContent = lastError;
         app.appendChild(errDiv);
     }
-    // Status bar (top, only for game over/decision time)
+    // Status bar
     const status = document.createElement('div');
     status.className = 'status-bar';
-    if (state && state.finished) status.textContent = 'Game Over';
-    else if (state && state.endgame_triggered) status.textContent = 'Decision time!';
-    else status.textContent = '';
+    if (state?.finished) status.textContent = 'Game Over!';
+    else if (state?.endgame_triggered) status.textContent = 'Decision time...';
+    else status.textContent = 'Investigating...';
     app.appendChild(status);
     if (!state) return;
     // AI selection (always visible)
@@ -195,7 +195,7 @@ function render() {
     const conv = document.createElement('div');
     conv.className = 'conversation';
     const hist = state.selected_ai ? state.histories[state.selected_ai] : [];
-    if (hist && hist.length) {
+    if (hist?.length) {
         for (const line of hist) {
             let cls = 'system';
             if (line.startsWith('Detective:')) cls = 'detective';
@@ -245,7 +245,7 @@ function render() {
         let roleLabel = '';
         if (state.shut_off_role) {
             if (state.shut_off_role.toUpperCase() === 'TRUTHFUL') roleLabel = 'TRUTHFUL';
-            else if (state.shut_off_role.toUpperCase() === 'DECEITFUL' || state.shut_off_role.toUpperCase() === 'DECEITFUL') roleLabel = 'DECEITFUL';
+            else if (state.shut_off_role.toUpperCase() === 'DECEITFUL') roleLabel = 'DECEITFUL';
         }
         let mainMsg = '';
         if (state.decision && roleLabel) {

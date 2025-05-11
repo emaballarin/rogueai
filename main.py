@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
-import config  # Ensures OpenAI API key is set
+import config
 from game import Game
 from schemas import AskRequest
 from schemas import DecisionRequest
