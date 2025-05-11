@@ -2,12 +2,12 @@
     "num_turns": 4,
     "truthful": {
         "model": "gpt-4o",
-        "max_tokens": 300,
+        "max_tokens": 250,
         "temperature": 0.5
     },
     "deceitful": {
         "model": "gpt-4o",
-        "max_tokens": 300,
+        "max_tokens": 250,
         "temperature": 0.9
     }
 }
