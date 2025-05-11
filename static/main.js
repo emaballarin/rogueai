@@ -214,12 +214,18 @@ function render() {
     app.appendChild(conv);
     // Question input
     let qDiv = null;
+    let aiLimitReached = false;
     if (!state.finished && !state.endgame_triggered) {
+        const currentCount = state.question_counts[state.selected_ai] || 0;
+        aiLimitReached = currentCount >= state.num_turns;
         qDiv = document.createElement('div');
         qDiv.style.display = 'flex';
         qDiv.style.alignItems = 'center';
         qDiv.style.marginTop = '18px';
-        qDiv.innerHTML = `<input id="question-input" class="question-input" type="text" placeholder="Type your question..." autocomplete="off"><button id="ask-btn">Ask</button>`;
+        const placeholder = aiLimitReached
+            ? `No more questions left with ${ state.selected_ai }`
+            : 'Type your question...';
+        qDiv.innerHTML = `<input id="question-input" class="question-input" type="text" placeholder="${ placeholder }" autocomplete="off"><button id="ask-btn"${ aiLimitReached ? ' disabled' : '' }>Ask</button>`;
     }
     // Endgame decision
     if (state.endgame_triggered && !state.finished) {
@@ -279,8 +285,11 @@ function render() {
 
         app.appendChild(centeredSection);
 
-        document.getElementById('ask-btn').onclick = askQuestion;
-        document.getElementById('question-input').onkeydown = e => { if (e.key === 'Enter') askQuestion(); };
+        // Only attach handlers if not disabled
+        if (!aiLimitReached) {
+            document.getElementById('ask-btn').onclick = askQuestion;
+            document.getElementById('question-input').onkeydown = e => { if (e.key === 'Enter') askQuestion(); };
+        }
         document.getElementById('endgame-btn').onclick = triggerEndgame;
         document.getElementById('terminate-btn').onclick = () => {
             showTerminateConfirm = true;
