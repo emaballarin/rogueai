@@ -203,3 +203,5 @@ pip-selfcheck.json
 
 # Log files created by default by the nohup command
 nohup.out
+.sessions/session_store.json
+.stats/game_stats.json

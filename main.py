@@ -244,12 +244,37 @@ async def manual_endgame(session_id: str) -> Dict[str, Any]:
 
 
 @app.post("/api/decision/{session_id}")
-async def make_decision(session_id: str, req: DecisionRequest) -> Dict[str, Any]:
-    """Record the detective's final decision and end the game."""
+async def make_decision(session_id: str, body: dict = Body(...)) -> Dict[str, Any]:
+    """Record the detective's final decision and end the game.
+
+    This handler accepts a flexible JSON body shape (agent_name, agent, ai, etc.)
+    to avoid 500s when the incoming payload doesn't match the expected schema.
+    """
     game: Optional[Game] = sessions.get(session_id)
     if not game:
         return {"error": SESSION_NOT_FOUND}
-    result = game.make_decision(req.agent_name)
+
+    # Accept multiple possible keys for backward/forward compatibility
+    agent_name = (
+        body.get("agent_name")
+        or body.get("agent")
+        or body.get("ai")
+        or body.get("agentName")
+    )
+
+    if not agent_name:
+        return {"error": "Missing agent name in request"}
+
+    # Ensure agent exists
+    agent_exists = any(a.name == agent_name for a in game.agents)
+    if not agent_exists:
+        return {"error": "Invalid agent name"}
+
+    # Perform the decision
+    result = game.make_decision(agent_name)
+    # Ensure game is marked finished so clients switch alla vista finale
+    if not game.finished:
+        game.finished = True
     save_sessions_to_disk()
     log_stats_endgame(session_id, game)
     return result

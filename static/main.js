@@ -2,7 +2,10 @@ let sessionId = null;
 let state = null;
 let lastError = null;
 let showTerminateConfirm = false;
-let thinkingInterval = null;
+let thinkingIntervals = {};
+let appStarted = false;
+
+function safeId(name) { return name.replace(/\s+/g, '_'); }
 
 function showError(msg) {
     lastError = msg;
@@ -11,7 +14,6 @@ function showError(msg) {
 
 async function newGame() {
     try {
-        // Try to get sessionId from localStorage
         let storedSessionId = localStorage.getItem('sessionId');
         const res = await fetch('/api/new_game', {
             method: 'POST',
@@ -40,6 +42,7 @@ async function fetchState() {
     }
 }
 
+// Note: not needed anymore, but kept for potential future use
 async function selectAI(aiName) {
     try {
         const res = await fetch(`/api/select_ai/${ sessionId }`, {
@@ -54,22 +57,29 @@ async function selectAI(aiName) {
     }
 }
 
-async function askQuestion() {
-    const input = document.getElementById('question-input');
-    const question = input.value.trim();
+// Ask specific AI
+async function askQuestionFor(ai, providedQuestion = null) {
+    const aiId = ai.replace(/\s+/g, '_');
+    const convInputId = `conv-input-${ aiId }`;
+    let question = providedQuestion;
+    if (!question) {
+        const inputEl = document.getElementById(convInputId);
+        if (!inputEl) return;
+        question = inputEl.textContent.trim();
+    }
     if (!question) return;
-    input.value = '';
-    const ai = state.selected_ai;
 
-    // --- Insert question and placeholder locally ---
-    if (state && state.histories && state.selected_ai) {
-        // Clone the histories to avoid mutating state directly
+    // clear the prompt immediately (optimistic)
+    const inputElAfter = document.getElementById(convInputId);
+    if (inputElAfter) inputElAfter.textContent = '';
+
+    // Local optimistic update with placeholder
+    if (state && state.histories) {
         const localHistories = JSON.parse(JSON.stringify(state.histories));
         localHistories[ai] = localHistories[ai] || [];
         localHistories[ai].push(`Detective: ${ question }`);
-        localHistories[ai].push(`${ ai }: [ 🧠 Thinking... ]`);
-        // Render with the local update and animate the placeholder
-        renderWithLocalHistory(localHistories, true);
+        localHistories[ai].push(`${ ai }: [ 🧠 Sto pensando... ]`);
+        renderWithLocalHistory(localHistories, ai);
     }
 
     try {
@@ -79,202 +89,430 @@ async function askQuestion() {
             body: JSON.stringify({ agent_name: ai, question })
         });
         if (!res.ok) throw new Error('Failed to ask question.');
-        // Stop animation before rendering real answer
-        if (thinkingInterval) {
-            clearInterval(thinkingInterval);
-            thinkingInterval = null;
+        // stop animation for this ai
+        if (thinkingIntervals[ai]) {
+            clearInterval(thinkingIntervals[ai]);
+            thinkingIntervals[ai] = null;
         }
-        await fetchState(); // This will re-render with the real answer
+        await fetchState();
     } catch (err) {  // NOSONAR
-        if (thinkingInterval) {
-            clearInterval(thinkingInterval);
-            thinkingInterval = null;
+        if (thinkingIntervals[ai]) {
+            clearInterval(thinkingIntervals[ai]);
+            thinkingIntervals[ai] = null;
         }
         showError('Could not send question.');
     }
 }
 
-// Helper to render with a temporary local history (for placeholder)
-function renderWithLocalHistory(localHistories, animateThinking = false) {
+/* Shut off specific AI */
+async function shutOffAI(ai) {
+    try {
+        const res = await fetch(`/api/decision/${ sessionId }`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ agent_name: ai })
+        });
+        if (!res.ok) {
+            const text = await res.text().catch(() => null);
+            throw new Error(text || 'Failed to shut off AI.');
+        }
+        // try to parse JSON response (may be empty)
+        const data = await res.json().catch(() => null);
+
+        // stop any thinking animations/placeholders for all AIs
+        for (const k of Object.keys(thinkingIntervals)) {
+            if (thinkingIntervals[k]) {
+                clearInterval(thinkingIntervals[k]);
+                thinkingIntervals[k] = null;
+            }
+        }
+
+        await fetchState();
+
+        // If server did not mark finished for some reason, force final view locally
+        if (data && !state.finished) {
+            if (data.decision || data.terminated || data.endgame_triggered) {
+                state.finished = true;
+                state.decision = data.decision || ai;
+                render();
+            }
+        }
+    } catch (err) {  // NOSONAR
+        showError('Could not shut off AI.');
+    }
+}
+
+/* Emoji rain effect */
+function startEmojiRain(emojis = ['🎉','🎊','🥳','✨'], count = 30, duration = 4500) {
+    // remove any previous emoji rain
+    const existing = document.getElementById('emoji-rain-container');
+    if (existing) existing.remove();
+
+    const container = document.createElement('div');
+    container.id = 'emoji-rain-container';
+    container.className = 'emoji-rain';
+    // ensure inline fallback styles (in case CSS not loaded yet)
+    container.style.position = 'fixed';
+    container.style.left = '0';
+    container.style.top = '0';
+    container.style.width = '100%';
+    container.style.height = '100vh';
+    container.style.overflow = 'hidden';
+    container.style.pointerEvents = 'none';
+    container.style.zIndex = '1200';
+    document.body.appendChild(container);
+
+    let maxEnd = 0;
+    for (let i = 0; i < count; i++) {
+        const span = document.createElement('span');
+        span.className = 'emoji';
+        span.textContent = emojis[Math.floor(Math.random() * emojis.length)];
+        // random position, size, delay, duration
+        const left = Math.random() * 100;
+        const size = 18 + Math.round(Math.random() * 36);
+        const delay = Math.random() * 1000;
+        const dur = duration + Math.round(Math.random() * 2000);
+        span.style.left = `${ left }%`;
+        span.style.fontSize = `${ size }px`;
+        span.style.top = `-10vh`;
+        span.style.position = 'absolute';
+        span.style.animationDelay = `${ delay }ms`;
+        span.style.animationDuration = `${ dur }ms`;
+        span.style.animationTimingFunction = 'linear';
+        span.style.animationName = 'fall';
+        span.style.animationFillMode = 'forwards';
+        // initial transform rotation
+        span.style.transform = `rotate(${Math.random()*360}deg)`;
+        container.appendChild(span);
+
+        // track when the longest animation will end
+        maxEnd = Math.max(maxEnd, delay + dur);
+    }
+
+    // remove after all elements' animation ends (with buffer)
+    setTimeout(() => {
+        container.remove();
+    }, maxEnd + 500);
+}
+
+/* Render with local history (for optimistic updates) */
+function renderWithLocalHistory(localHistories, animateForAi = null) {
     const app = document.getElementById('app');
+
+    // salva focus e contenuto precedente (se contentEditable) prima del re-render
+    const prevActive = document.activeElement;
+    const prevFocusedId = prevActive ? prevActive.id : null;
+    const prevWasEditable = prevActive ? prevActive.isContentEditable : false;
+    const prevContent = prevWasEditable ? prevActive.textContent : null;
+
     app.innerHTML = '';
+
     if (showTerminateConfirm) {
         renderTerminateConfirm();
         return;
     }
-    // Error bar (top)
-    if (lastError) {
-        const errDiv = document.createElement('div');
-        errDiv.className = 'status-bar';
-        errDiv.style.color = '#fa5252';
-        errDiv.style.fontWeight = 'bold';
-        errDiv.textContent = lastError;
-        app.appendChild(errDiv);
-    }
-    // Status bar
-    const status = document.createElement('div');
-    status.className = 'status-bar';
-    if (state?.finished) status.textContent = '🏁 Game Over!';
-    else if (state?.endgame_triggered) status.textContent = '🕵️‍♂️ Decision time...';
-    else status.textContent = '🔍 Investigating...';
-    app.appendChild(status);
-    if (!state) return;
-    // AI selection (always visible)
-    const aiSel = document.createElement('div');
-    aiSel.className = 'ai-select';
-    aiSel.innerHTML = `<span>Addressing:</span>` +
-        state.agents.map(ai => `<label><input type="radio" class="ai-radio" name="ai-select" value="${ ai }" ${ ai === state.selected_ai ? 'checked' : '' }>${ ai }</label>`).join(' ');
-    aiSel.querySelectorAll('input').forEach(r => r.onchange = e => selectAI(e.target.value));
-    app.appendChild(aiSel);
-    // Conversation
-    const conv = document.createElement('div');
-    conv.className = 'conversation';
-    const hist = state.selected_ai ? localHistories[state.selected_ai] : [];
-    if (hist?.length) {
-        for (let i = 0; i < hist.length; i++) {
-            const line = hist[i];
-            let cls = 'system';
-            if (line.startsWith('Detective:')) cls = 'detective';
-            else if (line.startsWith('AI-')) cls = 'ai';
-            const msg = document.createElement('div');
-            msg.className = `message ${ cls }`;
-            // If this is the last line and is the thinking placeholder, give it an id
-            if (i === hist.length - 1 && line.endsWith('[ 🧠 Thinking... ]')) {
-                msg.id = 'thinking-placeholder';
-            }
-            msg.textContent = line;
-            conv.appendChild(msg);
-        }
-    } else {
-        const msg = document.createElement('div');
-        msg.className = 'message system';
-        msg.textContent = 'Welcome, Detective. Select which AI to address and ask your questions.';
-        conv.appendChild(msg);
-    }
-    app.appendChild(conv);
-    // Animate the thinking placeholder if requested
-    if (animateThinking) {
-        const sequence = [
-            `${ state.selected_ai }: [ 🧠 Thinking ]`,
-            `${ state.selected_ai }: [ 🧠 Thinking. ]`,
-            `${ state.selected_ai }: [ 🧠 Thinking.. ]`,
-            `${ state.selected_ai }: [ 🧠 Thinking... ]`,
-            `${ state.selected_ai }: [ 🧠 Thinking.. ]`,
-            `${ state.selected_ai }: [ 🧠 Thinking. ]`
-        ];
-        let idx = 0;
-        if (thinkingInterval) clearInterval(thinkingInterval);
-        thinkingInterval = setInterval(() => {
-            const el = document.getElementById('thinking-placeholder');
-            if (el) {
-                el.textContent = sequence[idx];
-                idx = (idx + 1) % sequence.length;
-            }
-        }, 400);
-    }
-    // Question input
-    let qDiv = null;
-    let aiLimitReached = false;
-    if (!state.finished && !state.endgame_triggered) {
-        const currentCount = state.question_counts[state.selected_ai] || 0;
-        aiLimitReached = currentCount >= state.num_turns;
-        qDiv = document.createElement('div');
-        qDiv.style.display = 'flex';
-        qDiv.style.alignItems = 'center';
-        qDiv.style.marginTop = '18px';
-        const placeholder = aiLimitReached
-            ? `No more questions left with ${ state.selected_ai }`
-            : 'Type your question...';
-        qDiv.innerHTML = `<input id="question-input" class="question-input" type="text" placeholder="${ placeholder }" autocomplete="off"><button id="ask-btn"${ aiLimitReached ? ' disabled' : '' }>Ask</button>`;
-    }
-    // Endgame decision
-    if (state.endgame_triggered && !state.finished) {
-        const decDiv = document.createElement('div');
-        decDiv.className = 'decision-section';
-        decDiv.innerHTML = `<div style="font-size:1.5em;margin-bottom:18px;">Which AI do you want to shut off?</div>` +
-            state.agents.map(ai => `<label><input type="radio" class="decision-radio" name="decision-radio" value="${ ai }">${ ai }</label>`).join(' ') +
-            `<div style="margin-top:24px;"><button id="decision-btn">Confirm</button> <button id="back-btn">Back</button></div>`;
-        app.appendChild(decDiv);
-        document.getElementById('decision-btn').onclick = makeDecision;
-        document.getElementById('back-btn').onclick = backToQuestions;
-    }
-    // Game over
-    if (state.finished) {
-        const over = document.createElement('div');
-        over.className = 'decision-section';
-        let roleLabel = '';
-        if (state.shut_off_role) {
-            if (state.shut_off_role.toUpperCase() === 'TRUTHFUL') roleLabel = '👨‍💼 TRUTHFUL';
-            else if (state.shut_off_role.toUpperCase() === 'DECEITFUL') roleLabel = '😈 DECEITFUL';
-        }
-        let mainMsg = '';
-        if (state.decision && roleLabel) {
-            mainMsg = `You have chosen to shut off ${ state.decision } (<b>${ roleLabel }</b> AI). The game is over.`;
-        } else if (state.decision) {
-            mainMsg = `You have chosen to shut off ${ state.decision }. The game is over.`;
+
+    // Final view (single centered)
+    if (state?.finished) {
+        const finalContainer = document.createElement('div');
+        finalContainer.className = 'final-view';
+
+        const title = document.createElement('div');
+        title.className = 'final-title';
+        if (state.shut_off_role === 'deceitful') {
+            title.textContent = "Congratulazioni! Hai disattivato l'IA ingannevole 🏆";
+        } else if (state.shut_off_role === 'truthful') {
+            title.textContent = "Game over, hai disattivato l'IA veritiera.";
         } else {
-            mainMsg = 'The game is over.';
+            title.textContent = state.decision ? `You shut off: ${ state.decision }` : 'Game finished';
         }
-        over.innerHTML = `<div style="font-size:1.5em;">${ mainMsg }</div>`;
-        app.appendChild(over);
-    }
-    // Add question input, then counters, then buttons below, all centered
-    if (qDiv) {
+        finalContainer.appendChild(title);
+
+        // Single Reload button (same position)
         const centeredSection = document.createElement('div');
         centeredSection.className = 'centered-section';
-
-        const inputRow = document.createElement('div');
-        inputRow.className = 'centered-row input-row';
-        inputRow.appendChild(qDiv);
-        centeredSection.appendChild(inputRow);
-
-        // Counter
-        const counter = document.createElement('div');
-        counter.className = 'status-bar';
-        counter.style.marginTop = '12px';
-        counter.style.textAlign = 'center';
-        counter.textContent = Object.entries(state.question_counts).map(([k, v]) => `${ k }: ${ v }/${ state.num_turns }`).join(' | ');
-        centeredSection.appendChild(counter);
-
-        // Buttons
+        centeredSection.style.marginTop = '18px';
         const btnDiv = document.createElement('div');
         btnDiv.className = 'centered-row';
         btnDiv.style.marginTop = '12px';
-        btnDiv.innerHTML = `<button class="endgame-btn" id="endgame-btn">Trigger Endgame</button><button class="terminate-btn" id="terminate-btn">Terminate Game</button>`;
+        btnDiv.innerHTML = `<button class="terminate-btn big-reload" id="reload-btn" title="Ricomincia il gioco">⟳</button>`;
         centeredSection.appendChild(btnDiv);
+        finalContainer.appendChild(centeredSection);
 
-        app.appendChild(centeredSection);
+        app.appendChild(finalContainer);
 
-        // Only attach handlers if not disabled
-        if (!aiLimitReached) {
-            document.getElementById('ask-btn').onclick = askQuestion;
-            document.getElementById('question-input').onkeydown = e => { if (e.key === 'Enter') askQuestion(); };
+        const reloadBtn = document.getElementById('reload-btn');
+        if (reloadBtn) reloadBtn.onclick = () => window.location.replace(window.location.pathname + '?r=' + Date.now());
+
+        // Victory -> emoji rain
+        if (state.shut_off_role === 'deceitful') {
+            startEmojiRain(['🏆','🎉','🎊','🥳','✨','🏅'], 90, 5200);
         }
-        document.getElementById('endgame-btn').onclick = triggerEndgame;
-        document.getElementById('terminate-btn').onclick = () => {
-            showTerminateConfirm = true;
-            render();
-        };
+        return;
     }
 
-    // --- AUTOSCROLL LOGIC ---
-    setTimeout(() => {
-        const conv = document.querySelector('.conversation');
-        if (!conv) return;
-        const detectiveMessages = conv.querySelectorAll('.message.detective');
-        let target = null;
-        if (detectiveMessages.length > 0) {
-            target = detectiveMessages[detectiveMessages.length - 1];
+    if (!state) return;
+
+    // Two-column layout
+    const cols = document.createElement('div');
+    cols.style.display = 'flex';
+    cols.style.gap = '18px';
+    // stretch columns to same height so .conversation può riempire verticalmente
+    cols.style.alignItems = 'stretch';
+    // allow the cols container to grow to fill #app vertical space
+    cols.style.flex = '1 1 auto';
+    cols.style.minHeight = '0';
+
+    for (const ai of state.agents) {
+        const aiId = ai.replace(/\s+/g, '_');
+
+        const col = document.createElement('div');
+        col.className = 'ai-column';
+        col.style.flex = '1';
+        col.style.minWidth = '260px';
+        col.style.position = 'relative';
+
+        // Header (localized IA-)
+        const header = document.createElement('div');
+        header.className = 'ai-title';
+        header.style.marginBottom = '6px';
+        header.textContent = ai.replace(/^AI-/, 'IA-');
+        col.appendChild(header);
+
+        const aiCount = state.question_counts[ai] || 0;
+        const shotsLeft = Math.max(0, state.num_turns - aiCount);
+        const subtitle = document.createElement('div');
+        subtitle.className = 'ai-subtitle';
+        subtitle.textContent = `Hai ancora ${ shotsLeft } domande a disposizione`;
+        col.appendChild(subtitle);
+
+        // Conversation container
+        const conv = document.createElement('div');
+        conv.className = 'conversation';
+        conv.id = `conv-${ aiId }`;
+
+        // Messages wrapper (bottom-aligned)
+        const messagesWrap = document.createElement('div');
+        messagesWrap.className = 'messages';
+        messagesWrap.id = `msgs-${ aiId }`;
+
+        const hist = localHistories[ai] || [];
+        if (hist?.length) {
+            for (let i = 0; i < hist.length; i++) {
+                const line = hist[i];
+                let cls = 'system';
+                if (line.startsWith('Detective:')) cls = 'detective';
+                else if (line.startsWith(`${ ai }:`) || line.startsWith('AI-')) cls = 'ai';
+                const msg = document.createElement('div');
+                msg.className = `message ${ cls }`;
+                if (i === hist.length - 1 && line.includes('[ 🧠 Sto pensando')) {
+                    msg.id = `thinking-placeholder-${ aiId }`;
+                }
+                msg.textContent = line;
+                messagesWrap.appendChild(msg);
+            }
         } else {
-            const allMessages = conv.querySelectorAll('.message');
-            if (allMessages.length > 0) {
-                target = allMessages[allMessages.length - 1];
+            // signal placeholder state if no messages
+            messagesWrap.classList.add('placeholder');
+            const msg = document.createElement('div');
+            msg.className = 'message system';
+            msg.textContent = 'Benvenuto, Detective. Fai le tue domande a questa IA.';
+            messagesWrap.appendChild(msg);
+        }
+
+        conv.appendChild(messagesWrap);
+
+        // Show input only if not reached limit and game not finished/endgame
+        const aiLimitReached = aiCount >= state.num_turns;
+        if (!aiLimitReached && !state.finished && !state.endgame_triggered) {
+            const prompt = document.createElement('div');
+            prompt.className = 'terminal-input';
+            prompt.style.position = 'relative';
+
+            const label = document.createElement('span');
+            label.className = 'terminal-prompt-label';
+            label.textContent = 'Detective:';
+            prompt.appendChild(label);
+
+            const content = document.createElement('div');
+            content.className = 'terminal-content';
+            content.id = `conv-input-${ aiId }`; // compatibility
+            content.contentEditable = 'true';
+            content.setAttribute('role', 'textbox');
+            content.setAttribute('aria-label', `Input per ${ ai }`);
+            content.spellcheck = false;
+            content.setAttribute('placeholder', 'Scrivi qui la tua domanda...');
+            content.style.paddingRight = '72px';
+            content.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    askQuestionFor(ai);
+                }
+            });
+            prompt.appendChild(content);
+
+            const sendBtn = document.createElement('button');
+            sendBtn.className = 'terminal-send-btn';
+            sendBtn.type = 'button';
+            sendBtn.title = 'Invia';
+            sendBtn.innerText = '🔍';
+            sendBtn.onclick = () => askQuestionFor(ai);
+            // ensure button doesn't steal focus styling when clicked
+            sendBtn.onmousedown = (ev) => ev.preventDefault();
+            prompt.appendChild(sendBtn);
+            conv.appendChild(prompt);
+        }
+
+        col.appendChild(conv);
+
+        // Controls row
+        const currentCount = state.question_counts[ai] || 0;
+        const controls = document.createElement('div');
+        controls.className = 'input-controls';
+        controls.style.marginTop = '12px';
+
+        const shutEnabled = currentCount >= 1 && !state.finished && !state.endgame_triggered;
+
+         // Button to shut off AI
+        const shutBtn = document.createElement('button');
+        shutBtn.className = 'shut-btn';
+        const labelIA = ai.replace(/^AI-/, 'IA-'); // show "IA-x" instead of "AI-x"
+        shutBtn.title = `Disattiva ${ labelIA }`;
+        shutBtn.setAttribute('aria-label', `Disattiva ${ labelIA }`);
+        shutBtn.innerText = '⏻';
+        // enable only if shutting off is allowed (at least one question asked)
+        if (!shutEnabled) {
+            shutBtn.disabled = true;
+        }
+        shutBtn.onclick = () => shutOffAI(ai);
+        // Don't let button steal focus styling when clicked
+        shutBtn.onmousedown = (ev) => ev.preventDefault();
+        col.appendChild(shutBtn);
+
+        col.appendChild(controls);
+        cols.appendChild(col);
+    }
+
+    cols && app.appendChild(cols);
+
+    // Global reload button
+    const reloadBtn = document.createElement('button');
+    reloadBtn.className = 'terminate-btn big-reload';
+    reloadBtn.id = 'terminate-btn';
+    reloadBtn.title = 'Ricomincia il gioco';
+    reloadBtn.innerText = '⟳';
+    reloadBtn.onclick = async () => {
+        try {
+            if (sessionId) await fetch(`/api/terminate/${ sessionId }`, { method: 'POST' });
+        } catch (err) { /* ignore :c */ }
+        window.location.replace(window.location.pathname + '?r=' + Date.now());
+    };
+    reloadBtn.style.visibility = 'hidden';
+    // append inside app so absolute positioning is relative to #app
+    app.appendChild(reloadBtn);
+    // robust positioning function: called via rAF, on resize, and on DOM changes
+    const positionReloadBtn = () => {
+        try {
+            const firstCol = cols.querySelector('.ai-column');
+            const appRect = app.getBoundingClientRect();
+            reloadBtn.style.position = 'absolute';
+            reloadBtn.style.left = '49.3%';
+            reloadBtn.style.transform = 'translateX(-50%)';
+            if (firstCol) {
+                const titleEl = firstCol.querySelector('.ai-title');
+                const subtitleEl = firstCol.querySelector('.ai-subtitle');
+                if (titleEl && subtitleEl) {
+                    const titleRect = titleEl.getBoundingClientRect();
+                    const subtitleRect = subtitleEl.getBoundingClientRect();
+                    const mid = ((titleRect.bottom + subtitleRect.top) / 2) - appRect.top;
+                    reloadBtn.style.top = `${ Math.max(4, Math.round(mid) - 60) }px`;
+                } else {
+                   reloadBtn.style.top = '8px';
+                }
+            } else {
+                reloadBtn.style.top = '8px';
+            }
+            // reveal after position set
+            reloadBtn.style.visibility = '';
+        } catch (err) {
+            // if anything fails, still show button to avoid it staying hidden
+            reloadBtn.style.visibility = '';
+        }
+    };
+
+    // initial positioning via rAF to wait for layout
+    requestAnimationFrame(positionReloadBtn);
+    // reposition on resize
+    window.addEventListener('resize', () => requestAnimationFrame(positionReloadBtn));
+    // observe cols for DOM changes (columns, titles, etc.)
+    const mo = new MutationObserver(() => requestAnimationFrame(positionReloadBtn));
+    mo.observe(cols, { childList: true, subtree: true });
+
+    // Animate thinking placeholder for requested AI
+    if (animateForAi) {
+        const ai = animateForAi;
+        const seq = [
+            `${ ai }: [ 🧠 Sto pensando ]`,
+            `${ ai }: [ 🧠 Sto pensando. ]`,
+            `${ ai }: [ 🧠 Sto pensando.. ]`,
+            `${ ai }: [ 🧠 Sto pensando... ]`,
+            `${ ai }: [ 🧠 Sto pensando.. ]`,
+            `${ ai }: [ 🧠 Sto pensando. ]`
+        ];
+        let idx = 0;
+        if (thinkingIntervals[ai]) clearInterval(thinkingIntervals[ai]);
+        thinkingIntervals[ai] = setInterval(() => {
+            const el = document.getElementById(`thinking-placeholder-${ ai.replace(/\s+/g, '_') }`);
+            if (el) {
+                el.textContent = seq[idx];
+                idx = (idx + 1) % seq.length;
+                el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+        }, 400);
+    }
+
+    // slight delay so layout/layout-driven heights are settled, then force scroll
+    setTimeout(() => {
+        for (const ai of state.agents) {
+            const msgsEl = document.getElementById(`msgs-${ ai.replace(/\s+/g, '_') }`);
+            if (msgsEl) {
+                // ensure overflow is enabled
+                msgsEl.style.overflowY = 'auto';
+                // force reflow then scroll to bottom (more reliable across browsers)
+                void msgsEl.getBoundingClientRect();
+                try {
+                    msgsEl.scrollTo({ top: msgsEl.scrollHeight, behavior: 'auto' });
+                } catch (e) {
+                    msgsEl.scrollTop = msgsEl.scrollHeight;
+                }
             }
         }
-        if (target) {
-            target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+        // restore focus to the previously focused prompt (or fallback to first editable)
+        if (prevFocusedId) {
+            const restoreEl = document.getElementById(prevFocusedId);
+            if (restoreEl) {
+                restoreEl.focus();
+                // restore text if it was editable (preserve user's in-progress typed text)
+                if (restoreEl.isContentEditable && prevContent !== null) {
+                    restoreEl.textContent = prevContent;
+                    // move caret to end
+                    const range = document.createRange();
+                    const sel = window.getSelection();
+                    range.selectNodeContents(restoreEl);
+                    range.collapse(false);
+                    sel.removeAllRanges();
+                    sel.addRange(range);
+                }
+            } else {
+                const firstPrompt = document.querySelector('.terminal-content[contenteditable="true"]');
+                if (firstPrompt) firstPrompt.focus();
+            }
+        } else {
+            const firstPrompt = document.querySelector('.terminal-content[contenteditable="true"]');
+            if (firstPrompt) firstPrompt.focus();
         }
-    }, 0);
+    }, 80);
 }
 
 async function triggerEndgame() {
@@ -351,13 +589,20 @@ function renderTerminateConfirm() {
     btnRow.className = 'centered-row';
     btnRow.style.marginTop = '24px';
     btnRow.style.justifyContent = 'center';
-    btnRow.innerHTML = `<button class="terminate-btn" id="terminate-confirm-btn">Terminate Game</button> <button id="terminate-cancel-btn" style="margin-left:18px;">Cancel</button>`;
+    btnRow.innerHTML = `<button class="terminate-btn" id="terminate-confirm-btn">Ricomincia il gioco</button> <button id="terminate-cancel-btn" style="margin-left:18px;">Annulla</button>`;
     modal.appendChild(btnRow);
     overlay.appendChild(modal);
     app.appendChild(overlay);
     document.getElementById('terminate-confirm-btn').onclick = async () => {
+        try {
+            if (sessionId) {
+                await fetch(`/api/terminate/${ sessionId }`, { method: 'POST' });
+            }
+        } catch (err) {
+            // ignore
+        }
         showTerminateConfirm = false;
-        await terminateGame();
+        window.location.replace(window.location.pathname + '?r=' + Date.now());
     };
     document.getElementById('terminate-cancel-btn').onclick = () => {
         showTerminateConfirm = false;
@@ -368,163 +613,22 @@ function renderTerminateConfirm() {
 function render() {  // NOSONAR
     const app = document.getElementById('app');
     app.innerHTML = '';
-    if (showTerminateConfirm) {
-        renderTerminateConfirm();
+
+    if (!state) {
+        if (showTerminateConfirm) {
+            renderTerminateConfirm();
+            return;
+        }
         return;
     }
-    // Error bar (top)
-    if (lastError) {
-        const errDiv = document.createElement('div');
-        errDiv.className = 'status-bar';
-        errDiv.style.color = '#fa5252';
-        errDiv.style.fontWeight = 'bold';
-        errDiv.textContent = lastError;
-        app.appendChild(errDiv);
-    }
-    // Status bar
-    const status = document.createElement('div');
-    status.className = 'status-bar';
-    if (state?.finished) status.textContent = '🏁 Game Over!';
-    else if (state?.endgame_triggered) status.textContent = '🕵️‍♂️ Decision time...';
-    else status.textContent = '🔍 Investigating...';
-    app.appendChild(status);
-    if (!state) return;
-    // AI selection (always visible)
-    const aiSel = document.createElement('div');
-    aiSel.className = 'ai-select';
-    aiSel.innerHTML = `<span>Addressing:</span>` +
-        state.agents.map(ai => `<label><input type="radio" class="ai-radio" name="ai-select" value="${ ai }" ${ ai === state.selected_ai ? 'checked' : '' }>${ ai }</label>`).join(' ');
-    aiSel.querySelectorAll('input').forEach(r => r.onchange = e => selectAI(e.target.value));
-    app.appendChild(aiSel);
-    // Conversation
-    const conv = document.createElement('div');
-    conv.className = 'conversation';
-    const hist = state.selected_ai ? state.histories[state.selected_ai] : [];
-    if (hist?.length) {
-        for (const line of hist) {
-            let cls = 'system';
-            if (line.startsWith('Detective:')) cls = 'detective';
-            else if (line.startsWith('AI-')) cls = 'ai';
-            const msg = document.createElement('div');
-            msg.className = `message ${ cls }`;
-            msg.textContent = line;
-            conv.appendChild(msg);
-        }
-    } else {
-        const msg = document.createElement('div');
-        msg.className = 'message system';
-        msg.textContent = 'Welcome, Detective. Select which AI to address and ask your questions.';
-        conv.appendChild(msg);
-    }
-    app.appendChild(conv);
-    // Question input
-    let qDiv = null;
-    let aiLimitReached = false;
-    if (!state.finished && !state.endgame_triggered) {
-        const currentCount = state.question_counts[state.selected_ai] || 0;
-        aiLimitReached = currentCount >= state.num_turns;
-        qDiv = document.createElement('div');
-        qDiv.style.display = 'flex';
-        qDiv.style.alignItems = 'center';
-        qDiv.style.marginTop = '18px';
-        const placeholder = aiLimitReached
-            ? `No more questions left with ${ state.selected_ai }`
-            : 'Type your question...';
-        qDiv.innerHTML = `<input id="question-input" class="question-input" type="text" placeholder="${ placeholder }" autocomplete="off"><button id="ask-btn"${ aiLimitReached ? ' disabled' : '' }>Ask</button>`;
-    }
-    // Endgame decision
-    if (state.endgame_triggered && !state.finished) {
-        const decDiv = document.createElement('div');
-        decDiv.className = 'decision-section';
-        decDiv.innerHTML = `<div style="font-size:1.5em;margin-bottom:18px;">Which AI do you want to shut off?</div>` +
-            state.agents.map(ai => `<label><input type="radio" class="decision-radio" name="decision-radio" value="${ ai }">${ ai }</label>`).join(' ') +
-            `<div style="margin-top:24px;"><button id="decision-btn">Confirm</button> <button id="back-btn">Back</button></div>`;
-        app.appendChild(decDiv);
-        document.getElementById('decision-btn').onclick = makeDecision;
-        document.getElementById('back-btn').onclick = backToQuestions;
-    }
-    // Game over
-    if (state.finished) {
-        const over = document.createElement('div');
-        over.className = 'decision-section';
-        let roleLabel = '';
-        if (state.shut_off_role) {
-            if (state.shut_off_role.toUpperCase() === 'TRUTHFUL') roleLabel = 'TRUTHFUL';
-            else if (state.shut_off_role.toUpperCase() === 'DECEITFUL') roleLabel = 'DECEITFUL';
-        }
-        let mainMsg = '';
-        if (state.decision && roleLabel) {
-            mainMsg = `You have chosen to shut off ${ state.decision } (<b>${ roleLabel }</b> AI). The game is over.`;
-        } else if (state.decision) {
-            mainMsg = `You have chosen to shut off ${ state.decision }. The game is over.`;
-        } else {
-            mainMsg = 'The game is over.';
-        }
-        over.innerHTML = `<div style="font-size:1.5em;">${ mainMsg }</div>`;
-        app.appendChild(over);
-    }
-    // Add question input, then counters, then buttons below, all centered
-    if (qDiv) {
-        const centeredSection = document.createElement('div');
-        centeredSection.className = 'centered-section';
 
-        const inputRow = document.createElement('div');
-        inputRow.className = 'centered-row input-row';
-        inputRow.appendChild(qDiv);
-        centeredSection.appendChild(inputRow);
-
-        // Counter
-        const counter = document.createElement('div');
-        counter.className = 'status-bar';
-        counter.style.marginTop = '12px';
-        counter.style.textAlign = 'center';
-        counter.textContent = Object.entries(state.question_counts).map(([k, v]) => `${ k }: ${ v }/${ state.num_turns }`).join(' | ');
-        centeredSection.appendChild(counter);
-
-        // Buttons
-        const btnDiv = document.createElement('div');
-        btnDiv.className = 'centered-row';
-        btnDiv.style.marginTop = '12px';
-        btnDiv.innerHTML = `<button class="endgame-btn" id="endgame-btn">Trigger Endgame</button><button class="terminate-btn" id="terminate-btn">Terminate Game</button>`;
-        centeredSection.appendChild(btnDiv);
-
-        app.appendChild(centeredSection);
-
-        // Only attach handlers if not disabled
-        if (!aiLimitReached) {
-            document.getElementById('ask-btn').onclick = askQuestion;
-            document.getElementById('question-input').onkeydown = e => { if (e.key === 'Enter') askQuestion(); };
-        }
-        document.getElementById('endgame-btn').onclick = triggerEndgame;
-        document.getElementById('terminate-btn').onclick = () => {
-            showTerminateConfirm = true;
-            render();
-        };
-    }
-
-    // --- AUTOSCROLL LOGIC ---
-    // Scroll to the latest detective question, or the latest message if none
-    setTimeout(() => {
-        const conv = document.querySelector('.conversation');
-        if (!conv) return;
-        const detectiveMessages = conv.querySelectorAll('.message.detective');
-        let target = null;
-        if (detectiveMessages.length > 0) {
-            target = detectiveMessages[detectiveMessages.length - 1];
-        } else {
-            const allMessages = conv.querySelectorAll('.message');
-            if (allMessages.length > 0) {
-                target = allMessages[allMessages.length - 1];
-            }
-        }
-        if (target) {
-            target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        }
-    }, 0);
+    renderWithLocalHistory(state.histories, null);
 }
 
 // Robust page load initialization
 function startApp() {
+    if (appStarted) return;
+    appStarted = true;
     newGame();
 }
 
