@@ -87,9 +87,7 @@ def log_stats_manual_termination(session_id: str, game: Game) -> None:
     """Log a structured record for manual termination."""
     log_entry: dict[str, Any] = {
         "session_id": session_id,
-        "interactions": [
-            {"ai": ai, "history": game.histories[ai]} for ai in game.histories
-        ],
+        "interactions": [{"ai": ai, "history": game.histories[ai]} for ai in game.histories],
         "termination_type": "manual",
         "decision": None,
         "shut_off_role": None,
@@ -107,9 +105,7 @@ def log_stats_endgame(session_id: str, game: Game) -> None:
             shut_off_role = "truthful" if agent.role == 0 else "deceitful"
     log_entry: dict[str, Any] = {
         "session_id": session_id,
-        "interactions": [
-            {"ai": ai, "history": game.histories[ai]} for ai in game.histories
-        ],
+        "interactions": [{"ai": ai, "history": game.histories[ai]} for ai in game.histories],
         "termination_type": "endgame",
         "decision": game.decision,
         "shut_off_role": shut_off_role,
@@ -255,12 +251,7 @@ async def make_decision(session_id: str, body: dict = Body(...)) -> Dict[str, An
         return {"error": SESSION_NOT_FOUND}
 
     # Accept multiple possible keys for backward/forward compatibility
-    agent_name = (
-        body.get("agent_name")
-        or body.get("agent")
-        or body.get("ai")
-        or body.get("agentName")
-    )
+    agent_name = body.get("agent_name") or body.get("agent") or body.get("ai") or body.get("agentName")
 
     if not agent_name:
         return {"error": "Missing agent name in request"}
@@ -333,9 +324,7 @@ if __name__ == "__main__":
             or host in {"localhost", "0.0.0.0", "127.0.0.1"}
         )
 
-    parser: argparse.ArgumentParser = argparse.ArgumentParser(
-        description="Run the RogueAI FastAPI app."
-    )
+    parser: argparse.ArgumentParser = argparse.ArgumentParser(description="Run the RogueAI FastAPI app.")
     parser.add_argument(
         "--prod",
         nargs="?",

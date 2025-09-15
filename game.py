@@ -112,10 +112,7 @@ class Game:
         self.finished = True
         agent = next(a for a in self.agents if a.name == agent_name)
         role_str = "truthful" if agent.role == TRUTHFUL else "deceitful"
-        roles = {
-            a.name: ("TRUTHFUL" if a.role == TRUTHFUL else "DECEITFUL")
-            for a in self.agents
-        }
+        roles = {a.name: ("TRUTHFUL" if a.role == TRUTHFUL else "DECEITFUL") for a in self.agents}
         return {
             "result": f"You have chosen to shut off {agent_name} ({role_str} AI). The game is over.",
             "shut_off_role": role_str,
