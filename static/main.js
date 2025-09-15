@@ -335,7 +335,13 @@ function renderWithLocalHistory(localHistories, animateForAi = null, preserveFoc
         const shotsLeft = Math.max(0, state.num_turns - aiCount);
         const subtitle = document.createElement('div');
         subtitle.className = 'ai-subtitle';
-        subtitle.textContent = `Hai ancora ${ shotsLeft } domande a disposizione`;
+        if (shotsLeft === 0) {
+            subtitle.textContent = "Non hai piu' domande a disposizione";
+        } else if (shotsLeft === 1) {
+            subtitle.textContent = "Hai ancora 1 domanda a disposizione";
+        } else {
+            subtitle.textContent = `Hai ancora ${ shotsLeft } domande a disposizione`;
+        }
         col.appendChild(subtitle);
 
         // Conversation container
