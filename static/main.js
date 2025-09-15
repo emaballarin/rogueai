@@ -7,6 +7,53 @@ let appStarted = false;
 
 function safeId(name) { return name.replace(/\s+/g, '_'); }
 
+// Helper functions for cursor position management
+function getCaretPosition(element) {
+    let position = 0;
+    const selection = window.getSelection();
+    if (selection.rangeCount > 0) {
+        const range = selection.getRangeAt(0);
+        if (element.contains(range.startContainer)) {
+            const preCaretRange = range.cloneRange();
+            preCaretRange.selectNodeContents(element);
+            preCaretRange.setEnd(range.startContainer, range.startOffset);
+            position = preCaretRange.toString().length;
+        }
+    }
+    return position;
+}
+
+function setCaretPosition(element, position) {
+    const range = document.createRange();
+    const selection = window.getSelection();
+
+    let charIndex = 0;
+    let nodeStack = [element];
+    let node;
+    let foundStart = false;
+
+    while (!foundStart && (node = nodeStack.pop())) {
+        if (node.nodeType === Node.TEXT_NODE) {
+            const nextCharIndex = charIndex + node.textContent.length;
+            if (position >= charIndex && position <= nextCharIndex) {
+                range.setStart(node, position - charIndex);
+                foundStart = true;
+            }
+            charIndex = nextCharIndex;
+        } else {
+            for (let i = node.childNodes.length - 1; i >= 0; i--) {
+                nodeStack.push(node.childNodes[i]);
+            }
+        }
+    }
+
+    if (foundStart) {
+        range.collapse(true);
+        selection.removeAllRanges();
+        selection.addRange(range);
+    }
+}
+
 function showError(msg) {
     lastError = msg;
     render();
@@ -69,6 +116,10 @@ async function askQuestionFor(ai, providedQuestion = null) {
     }
     if (!question) return;
 
+    // Store current focus state before clearing
+    const currentlyFocused = document.activeElement;
+    const shouldRestoreFocus = currentlyFocused && currentlyFocused.id !== convInputId;
+
     // clear the prompt immediately (optimistic)
     const inputElAfter = document.getElementById(convInputId);
     if (inputElAfter) inputElAfter.textContent = '';
@@ -79,7 +130,7 @@ async function askQuestionFor(ai, providedQuestion = null) {
         localHistories[ai] = localHistories[ai] || [];
         localHistories[ai].push(`Detective: ${ question }`);
         localHistories[ai].push(`${ ai }: [ 🧠 Sto pensando... ]`);
-        renderWithLocalHistory(localHistories, ai);
+        renderWithLocalHistory(localHistories, ai, shouldRestoreFocus ? currentlyFocused : null);
     }
 
     try {
@@ -196,14 +247,15 @@ function startEmojiRain(emojis = ['🎉','🎊','🥳','✨'], count = 30, durat
 }
 
 /* Render with local history (for optimistic updates) */
-function renderWithLocalHistory(localHistories, animateForAi = null) {
+function renderWithLocalHistory(localHistories, animateForAi = null, preserveFocusElement = null) {
     const app = document.getElementById('app');
 
     // salva focus e contenuto precedente (se contentEditable) prima del re-render
-    const prevActive = document.activeElement;
+    const prevActive = preserveFocusElement || document.activeElement;
     const prevFocusedId = prevActive ? prevActive.id : null;
     const prevWasEditable = prevActive ? prevActive.isContentEditable : false;
     const prevContent = prevWasEditable ? prevActive.textContent : null;
+    const prevSelectionStart = prevWasEditable && prevActive.isContentEditable ? getCaretPosition(prevActive) : null;
 
     app.innerHTML = '';
 
@@ -466,7 +518,10 @@ function renderWithLocalHistory(localHistories, animateForAi = null) {
             if (el) {
                 el.textContent = seq[idx];
                 idx = (idx + 1) % seq.length;
-                el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                // Only scroll into view on the first animation cycle to avoid disrupting user input
+                if (idx === 1) {
+                    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
             }
         }, 400);
     }
@@ -491,24 +546,30 @@ function renderWithLocalHistory(localHistories, animateForAi = null) {
         // restore focus to the previously focused prompt (or fallback to first editable)
         if (prevFocusedId) {
             const restoreEl = document.getElementById(prevFocusedId);
-            if (restoreEl) {
+            if (restoreEl && restoreEl.isContentEditable) {
                 restoreEl.focus();
                 // restore text if it was editable (preserve user's in-progress typed text)
-                if (restoreEl.isContentEditable && prevContent !== null) {
+                if (prevContent !== null) {
                     restoreEl.textContent = prevContent;
-                    // move caret to end
-                    const range = document.createRange();
-                    const sel = window.getSelection();
-                    range.selectNodeContents(restoreEl);
-                    range.collapse(false);
-                    sel.removeAllRanges();
-                    sel.addRange(range);
+                    // restore cursor position
+                    if (prevSelectionStart !== null) {
+                        setCaretPosition(restoreEl, prevSelectionStart);
+                    } else {
+                        // fallback: move caret to end
+                        const range = document.createRange();
+                        const sel = window.getSelection();
+                        range.selectNodeContents(restoreEl);
+                        range.collapse(false);
+                        sel.removeAllRanges();
+                        sel.addRange(range);
+                    }
                 }
             } else {
                 const firstPrompt = document.querySelector('.terminal-content[contenteditable="true"]');
                 if (firstPrompt) firstPrompt.focus();
             }
         } else {
+            // If no previous focus, focus the first available input
             const firstPrompt = document.querySelector('.terminal-content[contenteditable="true"]');
             if (firstPrompt) firstPrompt.focus();
         }
@@ -612,6 +673,13 @@ function renderTerminateConfirm() {
 
 function render() {  // NOSONAR
     const app = document.getElementById('app');
+
+    // Save current focus state before clearing app content
+    const currentlyFocused = document.activeElement;
+    const shouldPreserveFocus = currentlyFocused &&
+        currentlyFocused.isContentEditable &&
+        app.contains(currentlyFocused);
+
     app.innerHTML = '';
 
     if (!state) {
@@ -622,7 +690,7 @@ function render() {  // NOSONAR
         return;
     }
 
-    renderWithLocalHistory(state.histories, null);
+    renderWithLocalHistory(state.histories, null, shouldPreserveFocus ? currentlyFocused : null);
 }
 
 // Robust page load initialization

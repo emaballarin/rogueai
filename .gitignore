@@ -206,5 +206,5 @@ nohup.out
 .sessions/session_store.json
 .stats/game_stats.json
 
-.virtualenv/
+# Virtualenv symlink
 .virtualenv
