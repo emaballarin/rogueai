@@ -18,7 +18,6 @@ from fastapi.staticfiles import StaticFiles
 import config
 from game import Game
 from schemas import AskRequest
-from schemas import DecisionRequest
 from schemas import SelectAIRequest
 from utils import get_ai_config
 

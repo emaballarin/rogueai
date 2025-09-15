@@ -89,20 +89,6 @@ async function fetchState() {
     }
 }
 
-// Note: not needed anymore, but kept for potential future use
-async function selectAI(aiName) {
-    try {
-        const res = await fetch(`/api/select_ai/${ sessionId }`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ agent_name: aiName })
-        });
-        if (!res.ok) throw new Error('Failed to select AI.');
-        await fetchState();
-    } catch (err) {  // NOSONAR
-        showError('Could not select AI.');
-    }
-}
 
 // Ask specific AI
 async function askQuestionFor(ai, providedQuestion = null) {

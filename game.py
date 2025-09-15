@@ -151,9 +151,6 @@ class Game:
         game.selected_ai = data["selected_ai"]
         return game
 
-    def reset(self, data: dict) -> None:
-        g = Game.from_dict(data)
-        self.__dict__.update(g.__dict__)
 
     def is_over(self) -> bool:
         return self.finished
