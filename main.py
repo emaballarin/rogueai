@@ -9,28 +9,33 @@ JSON. The file paths for persistence are declared below; helper functions
 provide safe load/save semantics and structured stats logging.
 """
 
-import re
-import os
-import uvicorn
 import argparse
 import json
 import logging
+import os
+import random
 import re
 import uuid
-from pathlib import Path
-from typing import Any, Dict, Optional
 from datetime import datetime
+from pathlib import Path
+from typing import Any
+from typing import Dict
+from typing import Optional
 
-from fastapi import Body, FastAPI
+import uvicorn
+from fastapi import Body
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse
+from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 import config
 from game import Game
 from schemas import AskRequest
-from utils import get_ai_config, query_openai, TRUTHFUL
-import random
+from utils import get_ai_config
+from utils import query_openai
+from utils import TRUTHFUL
 
 SESSION_NOT_FOUND: str = "Session not found"
 SESSIONS_FILE: str = ".sessions/session_store.json"
@@ -215,6 +220,7 @@ def log_stats_endgame(session_id: str, game: Game) -> None:
     }
     _append_structured_log(entry)
 
+
 # Load sessions on startup
 load_sessions_from_disk()
 
@@ -360,7 +366,6 @@ async def make_decision(session_id: str, body: dict = Body(...)) -> Dict[str, An
     save_sessions_to_disk()
     log_stats_endgame(session_id, game)
     return result
-
 
 
 @app.post("/api/terminate/{session_id}")

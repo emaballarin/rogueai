@@ -151,6 +151,5 @@ class Game:
         game.selected_ai = data["selected_ai"]
         return game
 
-
     def is_over(self) -> bool:
         return self.finished
