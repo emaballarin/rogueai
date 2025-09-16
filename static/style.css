@@ -14,6 +14,7 @@
     --btn-radius: 8px;
     --terminal-send-size: 25px;
     --big-reload-size: 5rem;
+    --error-banner-lift: 80px; /* positive => move banner up */
 }
 
 /* Helper layout classes */
@@ -129,7 +130,7 @@ button:active, button:focus{ background:#99aab5; outline:none; }
 .big-reload:active, .big-reload:focus, button.big-reload:active, button.big-reload:focus{ background:rgba(59,130,246,0.08); outline:none; box-shadow:none; }
 
 /* Shut off AI buttons */
-.agent-shutdown{ position:absolute; left:50%; bottom:calc(-1 * var(--shut-gap) - 12px); transform:translateX(-50%); background:transparent; color:#ff4d4f; border:none; font-size:5rem; padding:6px 8px; border-radius:var(--btn-radius); cursor:pointer; box-shadow:none; z-index:10; }
+.agent-shutdown{ position:absolute; left:50%; bottom:calc(-1 * var(--shut-gap) - 20px); transform:translateX(-50%); background:transparent; color:#ff4d4f; border:none; font-size:5rem; padding:6px 8px; border-radius:var(--btn-radius); cursor:pointer; box-shadow:none; z-index:10; }
 .agent-shutdown:hover{ background:rgba(255,77,79,0.06); }
 .agent-shutdown:active, .agent-shutdown:focus{ outline:none; background:rgba(255,77,79,0.08); }
 .agent-shutdown:disabled{ opacity:0.35; cursor:not-allowed; pointer-events:none; }
@@ -138,6 +139,12 @@ button:active, button:focus{ background:#99aab5; outline:none; }
 .final-view{ position:fixed; left:50%; top:56%; transform:translate(-50%,-50%); z-index:1150; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:18px; width:calc(100% - 48px); box-sizing:border-box; text-align:center; padding:16px; height:auto; }
 .final-title{ font-size:clamp(2.6rem,7.5vw,6rem); font-weight:900; margin:0; color:var(--text); line-height:1.02; }
 .final-view > button, .final-view button{ position:relative; transform:none; margin-top:6px; }
+
+/* Error banner between shut-off buttons */
+.error-banner-wrapper{ position:absolute; left:50%; transform:translateX(-50%); bottom:calc(-1 * var(--shut-gap) - 6px + var(--error-banner-lift)); width:auto; display:flex; justify-content:center; pointer-events:none; z-index:1050; }
+.error-banner{ max-width:720px; width:60%; min-height:44px; max-height:80px; overflow:auto; padding:10px 14px; box-sizing:border-box; border-radius:8px; background:rgba(255,77,79,0.06); color:#ffb3b3; border:1px solid rgba(255,77,79,0.12); font-weight:700; text-align:center; backdrop-filter: blur(2px); display:none; pointer-events:auto; }
+.error-banner.visible{ display:block; }
+.error-banner p{ margin:0; white-space:pre-wrap; }
 
 /* Emoji rain */
 #emoji-rain-container{ position:fixed; pointer-events:none; left:0; top:0; width:100%; height:100vh; overflow:hidden; z-index:1200; }

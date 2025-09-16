@@ -11,6 +11,26 @@ let showTerminateConfirm = false;
 // Sanitize string to be used as HTML id
 function safeId(name) { return name.replace(/\s+/g, '_'); }
 
+// Show a transient or persistent error message in the central error banner
+function showError(message) {
+    const b = document.getElementById('error-banner');
+    if (!b) return;
+    b.innerHTML = '';
+    const p = document.createElement('p');
+    p.textContent = message;
+    b.appendChild(p);
+    b.classList.add('visible');
+    // Ensure the banner is scrolled into view
+    b.scrollTop = 0;
+}
+
+function clearError() {
+    const b = document.getElementById('error-banner');
+    if (!b) return;
+    b.innerHTML = '';
+    b.classList.remove('visible');
+}
+
 // Helper functions for cursor position management
 function getCaretPosition(element) {
     let position = 0;
@@ -389,6 +409,17 @@ function renderWithLocalHistory(localHistories, animateForAi = null, preserveFoc
     }
 
     app.appendChild(cols);
+
+    // Error banner area (hidden by default) placed centrally between columns and global controls
+    const errorWrapper = document.createElement('div');
+    errorWrapper.className = 'error-banner-wrapper';
+    const errorBanner = document.createElement('div');
+    errorBanner.className = 'error-banner';
+    errorBanner.id = 'error-banner';
+    errorBanner.setAttribute('role', 'status');
+    errorWrapper.appendChild(errorBanner);
+    app.appendChild(errorWrapper);
+    // No automatic error message shown by default
 
     // Global reload button
     const reloadBtn = document.createElement('button');
