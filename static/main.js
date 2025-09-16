@@ -1,8 +1,14 @@
+/* Main JavaScript for RogueAI web app */
+
+/* State variables */
 let sessionId = null;
 let state = null;
 let thinkingIntervals = {};
+let thinkingControllers = {};
 let appStarted = false;
+let showTerminateConfirm = false;
 
+// Sanitize string to be used as HTML id
 function safeId(name) { return name.replace(/\s+/g, '_'); }
 
 // Helper functions for cursor position management
@@ -21,6 +27,7 @@ function getCaretPosition(element) {
     return position;
 }
 
+/* Helper functions for cursor position management */
 function setCaretPosition(element, position) {
     const range = document.createRange();
     const selection = window.getSelection();
@@ -52,11 +59,10 @@ function setCaretPosition(element, position) {
     }
 }
 
-function showError(msg) {
-    lastError = msg;
-    render();
-}
+// Errors are logged to console;
+// TODO: hidden UI banner for errors between the termination buttons
 
+/* Start a new game session */
 async function newGame() {
     try {
         let storedSessionId = localStorage.getItem('sessionId');
@@ -75,6 +81,7 @@ async function newGame() {
     }
 }
 
+/* Fetch current game state from backend */
 async function fetchState() {
     try {
         const res = await fetch(`/api/state/${ sessionId }`);
@@ -86,9 +93,10 @@ async function fetchState() {
     }
 }
 
+/* Send a question to an AI */
 async function askQuestionFor(ai, providedQuestion = null) {
-    const aiId = ai.replace(/\s+/g, '_');
-    const convInputId = `conv-input-${ aiId }`;
+    const aid = safeId(ai);
+    const convInputId = `conv-input-${ aid }`;
     let question = providedQuestion;
     if (!question) {
         const inputEl = document.getElementById(convInputId);
@@ -101,9 +109,12 @@ async function askQuestionFor(ai, providedQuestion = null) {
     const currentlyFocused = document.activeElement;
     const shouldRestoreFocus = currentlyFocused && currentlyFocused.id !== convInputId;
 
-    // clear the prompt immediately (optimistic)
+    // clear the prompt immediately (optimistic) and mark busy
     const inputElAfter = document.getElementById(convInputId);
-    if (inputElAfter) inputElAfter.textContent = '';
+    if (inputElAfter) {
+        inputElAfter.textContent = '';
+        inputElAfter.setAttribute('data-busy', '1');
+    }
 
     // Local optimistic update with placeholder
     if (state && state.histories) {
@@ -114,21 +125,32 @@ async function askQuestionFor(ai, providedQuestion = null) {
         renderWithLocalHistory(localHistories, ai, shouldRestoreFocus ? currentlyFocused : null);
     }
 
+    // Use AbortController per-agent so we can cancel previous requests
     try {
+        if (thinkingControllers[aid]) {
+            try { thinkingControllers[aid].abort(); } catch (e) {}
+        }
+        const controller = new AbortController();
+        thinkingControllers[aid] = controller;
         const res = await fetch(`/api/ask/${ sessionId }`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ agent_name: ai, question })
+            body: JSON.stringify({ agent_name: ai, question }),
+            signal: controller.signal,
         });
         if (!res.ok) throw new Error('Failed to ask question.');
-        if (thinkingIntervals[ai]) { clearInterval(thinkingIntervals[ai]); thinkingIntervals[ai] = null; }
+        stopThinking(ai);
         await fetchState();
     } catch (err) {
-        if (thinkingIntervals[ai]) { clearInterval(thinkingIntervals[ai]); thinkingIntervals[ai] = null; }
+        stopThinking(ai);
+        if (err.name === 'AbortError') return;
         console.error('Could not send question.', err);
+    } finally {
+        if (inputElAfter) inputElAfter.removeAttribute('data-busy');
     }
 }
 
+/* Shut off an AI */
 async function shutOffAI(ai) {
     try {
         const res = await fetch(`/api/decision/${ sessionId }`, {
@@ -144,26 +166,53 @@ async function shutOffAI(ai) {
         for (const k of Object.keys(thinkingIntervals)) {
             if (thinkingIntervals[k]) { clearInterval(thinkingIntervals[k]); thinkingIntervals[k] = null; }
         }
+        for (const k of Object.keys(thinkingControllers)) {
+            try { thinkingControllers[k].abort(); } catch (e) {}
+            thinkingControllers[k] = null;
+        }
         await fetchState();
     } catch (err) {
         console.error('Could not shut off AI.', err);
     }
 }
 
-/* Emoji rain */
+/* Thinking animation */
+function startThinking(ai) {
+    // create or reset thinking interval
+    const key = safeId(ai);
+    const aid = key;
+    const seq = [
+        `${ ai }: [ 🧠 Sto pensando ]`,
+        `${ ai }: [ 🧠 Sto pensando. ]`,
+        `${ ai }: [ 🧠 Sto pensando.. ]`,
+        `${ ai }: [ 🧠 Sto pensando... ]`,
+        `${ ai }: [ 🧠 Sto pensando.. ]`,
+        `${ ai }: [ 🧠 Sto pensando. ]`
+    ];
+    let idx = 0;
+    if (thinkingIntervals[key]) clearInterval(thinkingIntervals[key]);
+    thinkingIntervals[key] = setInterval(() => {
+        const el = document.getElementById(`thinking-placeholder-${ aid }`);
+        if (el) {
+            el.textContent = seq[idx];
+            idx = (idx + 1) % seq.length;
+            if (idx === 1) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+    }, 400);
+}
+
+/* Stop thinking animation */
+function stopThinking(ai) {
+    const key = safeId(ai);
+    if (thinkingIntervals[key]) { clearInterval(thinkingIntervals[key]); thinkingIntervals[key] = null; }
+}
+
+/* Emoji rain animation */
 function startEmojiRain(emojis = ['🎉','🎊','🥳','✨'], count = 30, duration = 4500) {
     const existing = document.getElementById('emoji-rain-container');
     if (existing) existing.remove();
     const container = document.createElement('div');
     container.id = 'emoji-rain-container';
-    container.style.position = 'fixed';
-    container.style.left = '0';
-    container.style.top = '0';
-    container.style.width = '100%';
-    container.style.height = '100vh';
-    container.style.overflow = 'hidden';
-    container.style.pointerEvents = 'none';
-    container.style.zIndex = '1200';
     document.body.appendChild(container);
     let maxEnd = 0;
     for (let i = 0; i < count; i++) {
@@ -191,13 +240,10 @@ function startEmojiRain(emojis = ['🎉','🎊','🥳','✨'], count = 30, durat
 }
 
 /* Render (core) */
-let mo = null;
-let resizeHandlerRegistered = false;
-
 function renderWithLocalHistory(localHistories, animateForAi = null, preserveFocusElement = null) {
     const app = document.getElementById('app');
 
-    // salva focus e contenuto precedente (se contentEditable) prima del re-render
+    // Save focus/content before clearing
     const prevActive = preserveFocusElement || document.activeElement;
     const prevFocusedId = prevActive ? prevActive.id : null;
     const prevWasEditable = prevActive ? prevActive.isContentEditable : false;
@@ -206,6 +252,7 @@ function renderWithLocalHistory(localHistories, animateForAi = null, preserveFoc
 
     app.innerHTML = '';
 
+    // Final view when game finished
     if (state?.finished) {
         const finalContainer = document.createElement('div');
         finalContainer.className = 'final-view';
@@ -215,43 +262,35 @@ function renderWithLocalHistory(localHistories, animateForAi = null, preserveFoc
         else if (state.shut_off_role === 'truthful') title.textContent = "Game over, hai disattivato l'IA veritiera.";
         else title.textContent = state.decision ? `You shut off: ${ state.decision }` : 'Game finished';
         finalContainer.appendChild(title);
+        // add centered reload button in final view
+        const reloadBtnWrapper = document.createElement('div');
+        reloadBtnWrapper.className = 'final-reload-wrapper';
+        const reloadBtn = document.createElement('button');
+        reloadBtn.className = 'big-reload';
+        reloadBtn.title = 'Ricomincia il gioco';
+        reloadBtn.innerText = '⟳';
+        reloadBtnWrapper.appendChild(reloadBtn);
+        finalContainer.appendChild(reloadBtnWrapper);
+    reloadBtn.onclick = () => window.location.replace(window.location.pathname + '?r=' + Date.now());
 
-    // Insert reload button directly into the final container
-    const reloadBtnWrapper = document.createElement('div');
-    reloadBtnWrapper.style.display = 'flex';
-    reloadBtnWrapper.style.justifyContent = 'center';
-    reloadBtnWrapper.style.alignItems = 'center';
-    reloadBtnWrapper.style.marginTop = '12px';
-    reloadBtnWrapper.innerHTML = `<button class="big-reload" id="reload-btn" title="Ricomincia il gioco">⟳</button>`;
-    finalContainer.appendChild(reloadBtnWrapper);
     app.appendChild(finalContainer);
-
-        const reloadBtn = document.getElementById('reload-btn');
-        if (reloadBtn) reloadBtn.onclick = () => window.location.replace(window.location.pathname + '?r=' + Date.now());
         if (state.shut_off_role === 'deceitful') startEmojiRain(['🏆','🎉','🎊','🥳','✨','🏅'], 90, 5200);
         return;
     }
 
     if (!state) return;
 
+    // Columns container
     const cols = document.createElement('div');
-    cols.style.display = 'flex';
-    cols.style.gap = '18px';
-    cols.style.alignItems = 'stretch';
-    cols.style.flex = '1 1 auto';
-    cols.style.minHeight = '0';
+    cols.className = 'cols-container';
 
     for (const ai of state.agents) {
-        const aiId = ai.replace(/\s+/g, '_');
+        const aiId = safeId(ai);
         const col = document.createElement('div');
         col.className = 'ai-column';
-        col.style.flex = '1';
-        col.style.minWidth = '260px';
-        col.style.position = 'relative';
 
-        const header = document.createElement('div');
-        header.className = 'ai-title';
-        header.style.marginBottom = '6px';
+    const header = document.createElement('div');
+    header.className = 'ai-title';
         header.textContent = ai.replace(/^AI-/, 'IA-');
         col.appendChild(header);
 
@@ -259,13 +298,8 @@ function renderWithLocalHistory(localHistories, animateForAi = null, preserveFoc
         const shotsLeft = Math.max(0, state.num_turns - aiCount);
         const subtitle = document.createElement('div');
         subtitle.className = 'ai-subtitle';
-        if (shotsLeft === 0) {
-            subtitle.textContent = "Non hai piu' domande a disposizione";
-        } else if (shotsLeft === 1) {
-            subtitle.textContent = "Hai ancora 1 domanda a disposizione";
-        } else {
-            subtitle.textContent = `Hai ancora ${ shotsLeft } domande a disposizione`;
-        }
+        if (shotsLeft === 0) subtitle.textContent = "Non hai piu' domande a disposizione";
+        else subtitle.textContent = `Hai ancora ${ shotsLeft } domande a disposizione`;
         col.appendChild(subtitle);
 
         const conv = document.createElement('div');
@@ -277,7 +311,7 @@ function renderWithLocalHistory(localHistories, animateForAi = null, preserveFoc
         messagesWrap.id = `msgs-${ aiId }`;
 
         const hist = localHistories[ai] || [];
-        if (hist?.length) {
+        if (hist.length) {
             for (let i = 0; i < hist.length; i++) {
                 const line = hist[i];
                 let cls = 'system';
@@ -285,9 +319,7 @@ function renderWithLocalHistory(localHistories, animateForAi = null, preserveFoc
                 else if (line.startsWith(`${ ai }:`) || line.startsWith('AI-')) cls = 'ai';
                 const msg = document.createElement('div');
                 msg.className = `message ${ cls }`;
-                if (i === hist.length - 1 && line.includes('[ 🧠 Sto pensando')) {
-                    msg.id = `thinking-placeholder-${ aiId }`;
-                }
+                if (i === hist.length - 1 && line.includes('[ 🧠 Sto pensando')) msg.id = `thinking-placeholder-${ aiId }`;
                 msg.textContent = line;
                 messagesWrap.appendChild(msg);
             }
@@ -305,7 +337,6 @@ function renderWithLocalHistory(localHistories, animateForAi = null, preserveFoc
         if (!aiLimitReached && !state.finished && !state.endgame_triggered) {
             const prompt = document.createElement('div');
             prompt.className = 'terminal-input';
-            prompt.style.position = 'relative';
 
             const label = document.createElement('span');
             label.className = 'terminal-prompt-label';
@@ -320,7 +351,6 @@ function renderWithLocalHistory(localHistories, animateForAi = null, preserveFoc
             content.setAttribute('aria-label', `Input per ${ ai }`);
             content.spellcheck = false;
             content.setAttribute('placeholder', 'Scrivi qui la tua domanda...');
-            content.style.paddingRight = '72px';
             content.addEventListener('keydown', (e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault();
@@ -343,10 +373,9 @@ function renderWithLocalHistory(localHistories, animateForAi = null, preserveFoc
         col.appendChild(conv);
 
         const currentCount = state.question_counts[ai] || 0;
-
         const shutEnabled = currentCount >= 1 && !state.finished && !state.endgame_triggered;
-        const shutBtn = document.createElement('button');
-        shutBtn.className = 'shut-btn';
+    const shutBtn = document.createElement('button');
+    shutBtn.className = 'agent-shutdown';
         const labelIA = ai.replace(/^AI-/, 'IA-');
         shutBtn.title = `Disattiva ${ labelIA }`;
         shutBtn.setAttribute('aria-label', `Disattiva ${ labelIA }`);
@@ -356,12 +385,12 @@ function renderWithLocalHistory(localHistories, animateForAi = null, preserveFoc
         shutBtn.onmousedown = (ev) => ev.preventDefault();
         col.appendChild(shutBtn);
 
-    cols.appendChild(col);
+        cols.appendChild(col);
     }
 
     app.appendChild(cols);
 
-    // Global reload button (positioned relative to #app)
+    // Global reload button
     const reloadBtn = document.createElement('button');
     reloadBtn.className = 'big-reload';
     reloadBtn.title = 'Ricomincia il gioco';
@@ -370,79 +399,15 @@ function renderWithLocalHistory(localHistories, animateForAi = null, preserveFoc
         try { if (sessionId) await fetch(`/api/terminate/${ sessionId }`, { method: 'POST' }); } catch (err) {}
         window.location.replace(window.location.pathname + '?r=' + Date.now());
     };
-    reloadBtn.style.visibility = 'hidden';
+    reloadBtn.classList.add('reload-top-center');
     app.appendChild(reloadBtn);
 
-    const positionReloadBtn = () => {
-        try {
-            const firstCol = cols.querySelector('.ai-column');
-            const appRect = app.getBoundingClientRect();
-            reloadBtn.style.position = 'absolute';
-            reloadBtn.style.left = '49.3%';
-            reloadBtn.style.transform = 'translateX(-50%)';
-            if (firstCol) {
-                const titleEl = firstCol.querySelector('.ai-title');
-                const subtitleEl = firstCol.querySelector('.ai-subtitle');
-                if (titleEl && subtitleEl) {
-                    const titleRect = titleEl.getBoundingClientRect();
-                    const subtitleRect = subtitleEl.getBoundingClientRect();
-                    const mid = ((titleRect.bottom + subtitleRect.top) / 2) - appRect.top;
-                    reloadBtn.style.top = `${ Math.max(4, Math.round(mid) - 60) }px`;
-                } else {
-                   reloadBtn.style.top = '8px';
-                }
-            } else {
-                reloadBtn.style.top = '8px';
-            }
-            reloadBtn.style.visibility = '';
-        } catch (err) { reloadBtn.style.visibility = ''; }
-    };
-    requestAnimationFrame(positionReloadBtn);
-
-    // Register a single resize handler once
-    if (!resizeHandlerRegistered) {
-        window.addEventListener('resize', () => requestAnimationFrame(positionReloadBtn));
-        resizeHandlerRegistered = true;
-    }
-
-    // Use a singleton MutationObserver; disconnect previous before creating a new one
-    if (mo) {
-        try { mo.disconnect(); } catch (e) {}
-        mo = null;
-    }
-    mo = new MutationObserver(() => requestAnimationFrame(positionReloadBtn));
-    mo.observe(cols, { childList: true, subtree: true });
-
-    if (animateForAi) {
-        const ai = animateForAi;
-        const seq = [
-            `${ ai }: [ 🧠 Sto pensando ]`,
-            `${ ai }: [ 🧠 Sto pensando. ]`,
-            `${ ai }: [ 🧠 Sto pensando.. ]`,
-            `${ ai }: [ 🧠 Sto pensando... ]`,
-            `${ ai }: [ 🧠 Sto pensando.. ]`,
-            `${ ai }: [ 🧠 Sto pensando. ]`
-        ];
-        let idx = 0;
-        if (thinkingIntervals[ai]) clearInterval(thinkingIntervals[ai]);
-        thinkingIntervals[ai] = setInterval(() => {
-            const el = document.getElementById(`thinking-placeholder-${ ai.replace(/\s+/g, '_') }`);
-            if (el) {
-                el.textContent = seq[idx];
-                idx = (idx + 1) % seq.length;
-                // Only scroll into view on the first animation cycle to avoid disrupting user input
-                if (idx === 1) {
-                    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                }
-            }
-        }, 400);
-    }
+    if (animateForAi) startThinking(animateForAi);
 
     setTimeout(() => {
         for (const ai of state.agents) {
-            const msgsEl = document.getElementById(`msgs-${ ai.replace(/\s+/g, '_') }`);
+            const msgsEl = document.getElementById(`msgs-${ safeId(ai) }`);
             if (msgsEl) {
-                msgsEl.style.overflowY = 'auto';
                 void msgsEl.getBoundingClientRect();
                 try { msgsEl.scrollTo({ top: msgsEl.scrollHeight, behavior: 'auto' }); } catch (e) { msgsEl.scrollTop = msgsEl.scrollHeight; }
             }
@@ -481,73 +446,23 @@ function renderWithLocalHistory(localHistories, animateForAi = null, preserveFoc
     }, 80);
 }
 
-
+/* Main render function */
 function render() {
     const app = document.getElementById('app');
-    // Overlay
-    const overlay = document.createElement('div');
-    overlay.style.position = 'fixed';
-    overlay.style.top = '0';
-    overlay.style.left = '0';
-    overlay.style.width = '100vw';
-    overlay.style.height = '100vh';
-    overlay.style.background = 'rgba(30,32,38,0.85)';
-    overlay.style.zIndex = '1000';
-    overlay.style.display = 'flex';
-    overlay.style.alignItems = 'center';
-    overlay.style.justifyContent = 'center';
-
-    // Modal
-    const modal = document.createElement('div');
-    modal.className = 'decision-section';
-    modal.style.maxWidth = '400px';
-    modal.style.margin = 'auto';
-    modal.innerHTML = `<div style="font-size:1.5em;margin-bottom:18px;">Are you sure you want to terminate the game?</div>`;
-    // Button row (centered, styled like endgame)
-    const btnRow = document.createElement('div');
-    btnRow.className = 'centered-row';
-    btnRow.style.marginTop = '24px';
-    btnRow.style.justifyContent = 'center';
-    btnRow.innerHTML = `<button class="terminate-btn" id="terminate-confirm-btn">Ricomincia il gioco</button> <button id="terminate-cancel-btn" style="margin-left:18px;">Annulla</button>`;
-    modal.appendChild(btnRow);
-    overlay.appendChild(modal);
-    app.appendChild(overlay);
-    document.getElementById('terminate-confirm-btn').onclick = async () => {
-        try {
-            if (sessionId) {
-                await fetch(`/api/terminate/${ sessionId }`, { method: 'POST' });
-            }
-        } catch (err) {
-            // ignore
-        }
-        showTerminateConfirm = false;
-        window.location.replace(window.location.pathname + '?r=' + Date.now());
-    };
-    document.getElementById('terminate-cancel-btn').onclick = () => {
-        showTerminateConfirm = false;
-        render();
-    };
-}
-
-function render() {  // NOSONAR
-    const app = document.getElementById('app');
-
-    // Save current focus state before clearing app content
     const currentlyFocused = document.activeElement;
-    const shouldPreserveFocus = currentlyFocused &&
-        currentlyFocused.isContentEditable &&
-        app.contains(currentlyFocused);
-
+    const shouldPreserveFocus = currentlyFocused && currentlyFocused.isContentEditable && app.contains(currentlyFocused);
     app.innerHTML = '';
     if (!state) return;
     renderWithLocalHistory(state.histories, null, shouldPreserveFocus ? currentlyFocused : null);
 }
 
+/* Function to start the app */
 function startApp() {
     if (appStarted) return;
     appStarted = true;
     newGame();
 }
 
+/* Start the app when DOM is ready */
 if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", startApp); else startApp();
 window.addEventListener("load", startApp);
