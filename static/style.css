@@ -119,7 +119,7 @@ html,body{
 .terminal-content[data-busy="1"]{ opacity:0.6; }
 
 /* Terminal / send button */
-.terminal-send-btn{ position:absolute; right:0; bottom:0; width:var(--terminal-send-size); height:var(--terminal-send-size); padding:0; box-sizing:border-box; line-height:1; border-radius:var(--btn-radius); border:none; background:transparent; color:var(--text); font-size:2rem; font-weight:700; display:inline-flex; align-items:center; justify-content:center; cursor:pointer; box-shadow:none; transition:background 0.12s; z-index:6; }
+.terminal-send-btn{ position:absolute; right:0; bottom:0; width:var(--terminal-send-size); height:var(--terminal-send-size); padding:0; box-sizing:border-box; line-height:1; border-radius:var(--btn-radius); border:none; background:transparent; color:var(--text); font-size:2rem; font-weight:700; display:inline-flex; align-items:end; justify-content:center; cursor:pointer; box-shadow:none; transition:background 0.12s; z-index:6; min-width: 0; }
 .terminal-send-btn:hover{ background:rgba(255,255,255,0.03); }
 .terminal-send-btn:active, .terminal-send-btn:focus{ background:rgba(255,255,255,0.05); outline:none; }
 .terminal-send-btn:disabled{ opacity:0.5; cursor:not-allowed; }
