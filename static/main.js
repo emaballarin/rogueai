@@ -5,13 +5,15 @@ let sessionId = null;
 let state = null;
 let thinkingIntervals = {};
 let thinkingControllers = {};
+let suggestionDotsIntervals = {};
+let suggestionCache = {};
 let appStarted = false;
 let showTerminateConfirm = false;
 
-// Sanitize string to be used as HTML id
+/* Sanitize string to be used as HTML id */
 function safeId(name) { return name.replace(/\s+/g, '_'); }
 
-// Show a transient or persistent error message in the central error banner
+/* Show a transient or persistent error message in the central error banner */
 function showError(message) {
     const b = document.getElementById('error-banner');
     if (!b) return;
@@ -24,6 +26,7 @@ function showError(message) {
     b.scrollTop = 0;
 }
 
+/* Clear the error banner */
 function clearError() {
     const b = document.getElementById('error-banner');
     if (!b) return;
@@ -31,7 +34,7 @@ function clearError() {
     b.classList.remove('visible');
 }
 
-// Helper functions for cursor position management
+/* Helper functions for cursor position management */
 function getCaretPosition(element) {
     let position = 0;
     const selection = window.getSelection();
@@ -78,9 +81,6 @@ function setCaretPosition(element, position) {
         selection.addRange(range);
     }
 }
-
-// Errors are logged to console;
-// TODO: hidden UI banner for errors between the termination buttons
 
 /* Start a new game session */
 async function newGame() {
@@ -345,10 +345,106 @@ function renderWithLocalHistory(localHistories, animateForAi = null, preserveFoc
             }
         } else {
             messagesWrap.classList.add('placeholder');
-            const msg = document.createElement('div');
-            msg.className = 'message system';
-            msg.textContent = 'Benvenuto, Detective. Fai le tue domande a questa IA.';
-            messagesWrap.appendChild(msg);
+                const msg = document.createElement('div');
+                msg.className = 'message system';
+
+                const cached = suggestionCache[aiId];
+                if (cached) {
+                    // If we have a cached suggestion for this AI, render it directly as clickable link
+                    const introNode = document.createTextNode('Benvenuto, Detective. Fai le tue domande a questa IA.\n\nProva con: ');
+                    const link = document.createElement('a');
+                    link.href = '#';
+                    link.className = 'suggestion-link';
+                    link.textContent = cached;
+                    link.style.color = 'inherit';
+                    link.onclick = (e) => {
+                        e.preventDefault();
+                        const inputEl = document.getElementById(`conv-input-${ aiId }`);
+                        if (inputEl) {
+                            inputEl.textContent = cached;
+                            inputEl.focus();
+                        }
+                        askQuestionFor(ai, cached);
+                        return false;
+                    };
+                    msg.appendChild(introNode);
+                    msg.appendChild(link);
+                    messagesWrap.appendChild(msg);
+                } else {
+                    // default text while suggestion loads; append a dynamic dots span
+                    const intro = document.createTextNode('Benvenuto, Detective. Fai le tue domande a questa IA.\n\nProva con: ');
+                    const dots = document.createElement('span');
+                    const aiDotsKey = `suggestion-dots-${ aiId }`;
+                    dots.id = aiDotsKey;
+                    dots.textContent = '.';
+                    msg.appendChild(intro);
+                    msg.appendChild(dots);
+                    messagesWrap.appendChild(msg);
+
+                    // animate dots: . .. ... .. .
+                    try {
+                        if (suggestionDotsIntervals[aiDotsKey]) clearInterval(suggestionDotsIntervals[aiDotsKey]);
+                    } catch (e) {}
+                    const seq = ['.', '..', '...', '..', '.'];
+                    let sidx = 0;
+                    suggestionDotsIntervals[aiDotsKey] = setInterval(() => {
+                        const el = document.getElementById(aiDotsKey);
+                        if (!el) { clearInterval(suggestionDotsIntervals[aiDotsKey]); delete suggestionDotsIntervals[aiDotsKey]; return; }
+                        el.textContent = seq[sidx];
+                        sidx = (sidx + 1) % seq.length;
+                    }, 400);
+
+                    // asynchronously fetch a suggestion (stateless endpoint)
+                    (async () => {
+                        try {
+                            const res = await fetch('/api/suggestion');
+                            if (!res.ok) {
+                                // clear animation
+                                if (suggestionDotsIntervals[aiDotsKey]) { clearInterval(suggestionDotsIntervals[aiDotsKey]); delete suggestionDotsIntervals[aiDotsKey]; }
+                                return;
+                            }
+                            const data = await res.json();
+                            if (data && data.suggestion) {
+                                // cache the suggestion so it won't be refetched
+                                suggestionCache[aiId] = data.suggestion;
+                                // clear animation
+                                if (suggestionDotsIntervals[aiDotsKey]) { clearInterval(suggestionDotsIntervals[aiDotsKey]); delete suggestionDotsIntervals[aiDotsKey]; }
+                                // Build clickable suggestion link that, when clicked, will be used as input and sent
+                                msg.innerHTML = '';
+                                const introNode = document.createTextNode('Benvenuto, Detective. Fai le tue domande a questa IA.\n\nProva con: ');
+                                const link = document.createElement('a');
+                                link.href = '#';
+                                link.className = 'suggestion-link';
+                                link.textContent = data.suggestion;
+                                // Keep the link color the same as surrounding text; underline handled by CSS
+                                link.style.color = 'inherit';
+                                link.onclick = (e) => {
+                                    e.preventDefault();
+                                    try {
+                                        // stop any running dots animation for this key
+                                        if (suggestionDotsIntervals[aiDotsKey]) { clearInterval(suggestionDotsIntervals[aiDotsKey]); delete suggestionDotsIntervals[aiDotsKey]; }
+                                    } catch (err) {}
+                                    // put suggestion into the input (if present) and send it
+                                    const inputEl = document.getElementById(`conv-input-${ aiId }`);
+                                    if (inputEl) {
+                                        inputEl.textContent = data.suggestion;
+                                        inputEl.focus();
+                                    }
+                                    // send the question using the existing helper; providedQuestion ensures it's used as-is
+                                    askQuestionFor(ai, data.suggestion);
+                                    return false;
+                                };
+                                msg.appendChild(introNode);
+                                msg.appendChild(link);
+                            } else {
+                                if (suggestionDotsIntervals[aiDotsKey]) { clearInterval(suggestionDotsIntervals[aiDotsKey]); delete suggestionDotsIntervals[aiDotsKey]; }
+                            }
+                        } catch (e) {
+                            // silent fail; clear animation and keep default intro
+                            if (suggestionDotsIntervals[aiDotsKey]) { clearInterval(suggestionDotsIntervals[aiDotsKey]); delete suggestionDotsIntervals[aiDotsKey]; }
+                        }
+                    })();
+                }
         }
 
         conv.appendChild(messagesWrap);

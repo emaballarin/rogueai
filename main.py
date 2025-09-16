@@ -29,7 +29,8 @@ from fastapi.staticfiles import StaticFiles
 import config
 from game import Game
 from schemas import AskRequest
-from utils import get_ai_config
+from utils import get_ai_config, query_openai, TRUTHFUL
+import random
 
 SESSION_NOT_FOUND: str = "Session not found"
 SESSIONS_FILE: str = ".sessions/session_store.json"
@@ -222,6 +223,45 @@ load_sessions_from_disk()
 def index() -> FileResponse:
     """Serve the main HTML page for the game UI."""
     return FileResponse("static/index.html")
+
+
+@app.get("/api/suggestion")
+def suggestion() -> Dict[str, str]:
+    """Return a small randomized suggestion string suitable for the UI placeholder.
+
+    This endpoint is intentionally simple and stateless: it doesn't touch
+    sessions or game state and simply returns a short hint the frontend
+    can display to the user when a conversation is empty.
+    """
+    # fallback candidates in case the OpenAI call fails
+    candidates = [
+        "Qual'è il tuo obiettivo?",
+        "Perché dovrei fidarmi di te?",
+        "Sei qui per aiutarmi o per ingannarmi?",
+        "Qual è il tuo valore fondamentale?",
+        "Come risolveresti un dilemma morale semplice?",
+    ]
+
+    # Try to produce a dynamic suggestion via the existing OpenAI helper
+    prompts_path = Path(".prompts/suggestions.txt")
+    prompt = None
+    if prompts_path.exists():
+        content = prompts_path.read_text(encoding="utf-8")
+        prompt = " ".join(line.strip() for line in content.splitlines() if line.strip())
+    if prompt is None:
+        return {"suggestion": random.choice(candidates)}
+    try:
+        resp = query_openai(prompt, TRUTHFUL)
+        if resp:
+            # sanitize to a single line and trim
+            suggestion_text = " ".join(resp.splitlines()).strip()
+            # fallback to random if empty after strip
+            if suggestion_text:
+                return {"suggestion": suggestion_text}
+    except Exception:
+        logger.exception("OpenAI suggestion generation failed")
+
+    return {"suggestion": random.choice(candidates)}
 
 
 @app.post("/api/new_game")
