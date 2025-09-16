@@ -1,29 +1,40 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
+"""
+RogueAI FastAPI application.
+
+This module provides the HTTP API for the RogueAI game used by the
+frontend. It maintains an in-memory session store persisted to disk as
+JSON. The file paths for persistence are declared below; helper functions
+provide safe load/save semantics and structured stats logging.
+"""
+
+import argparse
 import json
 import logging
-import os
+import re
 import uuid
-from typing import Any
-from typing import Dict
-from typing import Optional
+from pathlib import Path
+from typing import Any, Dict, Optional
+from datetime import datetime
 
-from fastapi import Body
-from fastapi import FastAPI
+from fastapi import Body, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 import config
 from game import Game
 from schemas import AskRequest
-from schemas import SelectAIRequest
 from utils import get_ai_config
 
 SESSION_NOT_FOUND: str = "Session not found"
 SESSIONS_FILE: str = ".sessions/session_store.json"
 STATS_FILE: str = ".stats/game_stats.json"
+
+# Path objects used by helper functions (prefer Path for clearer APIs)
+SESSIONS_PATH: Path = Path(SESSIONS_FILE)
+STATS_PATH: Path = Path(STATS_FILE)
 
 config.init()
 
@@ -44,55 +55,130 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+def ensure_parent_dirs(path: Path) -> None:
+    """Ensure the directory in which `path` lives exists.
+
+    This is a small helper used before writing either sessions or stats
+    files. It creates parent directories recursively and is idempotent.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+
+def backup_and_reset(path: Path) -> None:
+    """Backup the given file by renaming it to a numbered suffix and
+    create a fresh empty JSON object at the original path.
+
+    Example: if path is `.sessions/session_store.json` and it exists but
+    is invalid, this will move it to `.sessions/session_store_1.json`
+    (or higher index if that already exists) and write a new `{}` to the
+    original path.
+    """
+    base = path.with_suffix("").name
+    parent = path.parent
+    i = 1
+    while (parent / f"{base}_{i}{path.suffix}").exists():
+        i += 1
+    path.rename(parent / f"{base}_{i}{path.suffix}")
+    path.write_text("{}")
+
+
 def save_sessions_to_disk() -> None:
-    with open(SESSIONS_FILE, "w") as f:
+    """Persist the current `sessions` mapping to disk.
+
+    This overwrites the sessions file with the JSON representation of the
+    in-memory `sessions` dict. Callers should expect IO errors to be
+    propagated so they can be logged or retried by the caller.
+    """
+    ensure_parent_dirs(SESSIONS_PATH)
+    with SESSIONS_PATH.open("w", encoding="utf-8") as f:
         json.dump({k: v.to_dict() for k, v in sessions.items()}, f)
 
 
-def load_sessions_from_disk() -> None:  # NOSONAR
-    if not os.path.exists(SESSIONS_FILE):
-        with open(SESSIONS_FILE, "w") as f:
-            f.write("{}")
-    if os.path.exists(SESSIONS_FILE):
-        # Fallback mechanism for empty or invalid session_store.json
-        with open(SESSIONS_FILE, "r") as f:
-            raw_content: str = f.read()
-        if raw_content.strip() == "":
-            # File is empty or only whitespace/newlines
-            with open(SESSIONS_FILE, "w") as f:
-                f.write("{}")
-            data = {}
-        else:
-            try:
-                data = json.loads(raw_content)
-            except Exception:
-                # File is not empty but invalid JSON
-                # Find next available session_store_X.json
-                base, ext = os.path.splitext(SESSIONS_FILE)
-                i = 1
-                while os.path.exists(f"{base}_{i}{ext}"):
-                    i += 1
-                os.rename(SESSIONS_FILE, f"{base}_{i}{ext}")
-                with open(SESSIONS_FILE, "w") as f:
-                    f.write("{}")
-                data = {}
-        for k, v in data.items():
+def load_sessions_from_disk() -> None:
+    """Load sessions from disk into the global `sessions` mapping.
+
+    This function is resilient to missing/empty or invalid session files.
+    Invalid files are backed up and replaced with an empty object. Only
+    non-finished sessions are restored into memory.
+    """
+    ensure_parent_dirs(SESSIONS_PATH)
+    if not SESSIONS_PATH.exists():
+        SESSIONS_PATH.write_text("{}")
+    raw = SESSIONS_PATH.read_text(encoding="utf-8")
+    if raw.strip() == "":
+        SESSIONS_PATH.write_text("{}")
+        return
+    try:
+        data = json.loads(raw)
+        if not isinstance(data, dict):
+            raise ValueError("sessions file not a dict")
+    except Exception:
+        backup_and_reset(SESSIONS_PATH)
+        return
+    for k, v in data.items():
+        try:
             game = Game.from_dict(v)
             if not game.is_over():
                 sessions[k] = game
+        except Exception:
+            logger.exception("Failed to load session %s", k)
+
+
+def load_stats_file() -> list[Any]:
+    """Return a list read from the stats JSON file.
+
+    If the file does not exist it will be created with an empty list. If
+    the file is empty or invalid, the invalid file will be backed up and
+    a fresh empty list will be returned.
+    """
+    ensure_parent_dirs(STATS_PATH)
+    if not STATS_PATH.exists():
+        STATS_PATH.write_text("[]")
+        return []
+    raw = STATS_PATH.read_text(encoding="utf-8")
+    if raw.strip() == "":
+        STATS_PATH.write_text("[]")
+        return []
+    try:
+        data = json.loads(raw)
+        if not isinstance(data, list):
+            raise ValueError("stats file not a list")
+    except Exception:
+        base = STATS_PATH.with_suffix("").name
+        parent = STATS_PATH.parent
+        i = 1
+        while (parent / f"{base}_{i}{STATS_PATH.suffix}").exists():
+            i += 1
+        STATS_PATH.rename(parent / f"{base}_{i}{STATS_PATH.suffix}")
+        STATS_PATH.write_text("[]")
+        return []
+    return data
+
+
+def _append_structured_log(entry: dict[str, Any]) -> None:
+    """Append an entry to the stats JSON list on disk.
+
+    This function loads the current list, appends `entry`, and writes the
+    list back. It intentionally performs a full write to keep the on-disk
+    representation simple and readable.
+    """
+    data = load_stats_file()
+    data.append(entry)
+    STATS_PATH.write_text(json.dumps(data, indent=2))
 
 
 def log_stats_manual_termination(session_id: str, game: Game) -> None:
     """Log a structured record for manual termination."""
-    log_entry: dict[str, Any] = {
+    entry = {
         "session_id": session_id,
+        "interactions": [{"ai": ai, "history": game.histories[ai]} for ai in game.histories],
         "interactions": [{"ai": ai, "history": game.histories[ai]} for ai in game.histories],
         "termination_type": "manual",
         "decision": None,
         "shut_off_role": None,
         "question_counts": game.question_counts,
     }
-    _append_structured_log(log_entry)
+    _append_structured_log(entry)
 
 
 def log_stats_endgame(session_id: str, game: Game) -> None:
@@ -102,54 +188,16 @@ def log_stats_endgame(session_id: str, game: Game) -> None:
         agent = next((a for a in game.agents if a.name == game.decision), None)
         if agent:
             shut_off_role = "truthful" if agent.role == 0 else "deceitful"
-    log_entry: dict[str, Any] = {
+    entry = {
         "session_id": session_id,
+        "interactions": [{"ai": ai, "history": game.histories[ai]} for ai in game.histories],
         "interactions": [{"ai": ai, "history": game.histories[ai]} for ai in game.histories],
         "termination_type": "endgame",
         "decision": game.decision,
         "shut_off_role": shut_off_role,
         "question_counts": game.question_counts,
     }
-    _append_structured_log(log_entry)
-
-
-def load_stats_file() -> list[Any]:
-    """Ensure the stats file exists and is a valid JSON list. If empty, fill with []. If invalid, back up and start fresh."""
-    if not os.path.exists(STATS_FILE):
-        with open(STATS_FILE, "w") as f:
-            json.dump([], f)
-        return []
-    with open(STATS_FILE, "r+") as f:
-        raw_content: str = f.read()
-        if raw_content.strip() == "":
-            f.seek(0)
-            json.dump([], f)
-            f.truncate()
-            return []
-        try:
-            data = json.loads(raw_content)
-            if not isinstance(data, list):
-                data = []
-        except Exception:
-            # Backup invalid file
-            base, ext = os.path.splitext(STATS_FILE)
-            i = 1
-            while os.path.exists(f"{base}_{i}{ext}"):
-                i += 1
-            os.rename(STATS_FILE, f"{base}_{i}{ext}")
-            with open(STATS_FILE, "w") as f2:
-                json.dump([], f2)
-            return []
-        return data
-
-
-def _append_structured_log(entry: dict[str, Any]) -> None:
-    """Append a structured log entry to the stats file as a JSON list."""
-    data = load_stats_file()
-    data.append(entry)
-    with open(STATS_FILE, "w") as f:
-        json.dump(data, f, indent=2)
-
+    _append_structured_log(entry)
 
 # Load sessions on startup
 load_sessions_from_disk()
@@ -162,9 +210,7 @@ def index() -> FileResponse:
 
 
 @app.post("/api/new_game")
-def new_game(
-    session_id: Optional[str] = Body(default=None, embed=True),
-) -> Dict[str, str]:
+def new_game(session_id: Optional[str] = Body(default=None, embed=True)) -> Dict[str, str]:
     """Start a new game session and return the session ID. Resume if unfinished session_id is provided and valid."""
     if session_id is not None:
         game: Optional[Game] = sessions.get(session_id)
@@ -189,9 +235,12 @@ def get_state(session_id: str) -> Dict[str, Any]:
         agent = next((a for a in game.agents if a.name == game.decision), None)
         if agent:
             shut_off_role = "truthful" if agent.role == 0 else "deceitful"
+    # Return the full histories mapping and other session state. The
+    # front-end uses multiple conversation columns (one per agent) so a
+    # single `active_ai`/`active_history` convenience pair is not
+    # required anymore.
     return {
         "agents": [a.name for a in game.agents],
-        "selected_ai": game.selected_ai,
         "histories": game.histories,
         "question_counts": game.question_counts,
         "num_turns": game.num_turns,
@@ -210,21 +259,22 @@ async def ask_ai(session_id: str, req: AskRequest) -> Dict[str, Any]:
         return {"error": SESSION_NOT_FOUND}
     result = game.next_turn(req.agent_name, req.question)
     save_sessions_to_disk()
+    # Record this interaction in the structured stats log so chats are
+    # preserved as they happen (not only at termination). This is kept
+    # best-effort: failures to append logs shouldn't break the API.
+    try:
+        entry = {
+            "session_id": session_id,
+            "type": "interaction",
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "agent": req.agent_name,
+            "question": req.question,
+            "result": result,
+        }
+        _append_structured_log(entry)
+    except Exception:
+        logger.exception("Failed to append interaction to stats for %s", session_id)
     return result
-
-
-@app.post("/api/select_ai/{session_id}")
-async def select_ai(session_id: str, req: SelectAIRequest) -> Dict[str, Any]:
-    """Change which AI the detective is addressing."""
-    game: Optional[Game] = sessions.get(session_id)
-    if not game:
-        return {"error": SESSION_NOT_FOUND}
-    agent_name: str = req.agent_name
-    if agent_name in [a.name for a in game.agents]:
-        game.selected_ai = agent_name
-        save_sessions_to_disk()
-        return {"selected_ai": agent_name}
-    return {"error": "Invalid agent name"}
 
 
 @app.post("/api/manual_endgame/{session_id}")
@@ -233,9 +283,15 @@ async def manual_endgame(session_id: str) -> Dict[str, Any]:
     game: Optional[Game] = sessions.get(session_id)
     if not game:
         return {"error": SESSION_NOT_FOUND}
-    game.manual_endgame()
+    # For the new UI we treat manual endgame as immediate termination:
+    # mark the game finished, log a manual termination entry, persist
+    # state and return terminated=True. This simplifies the client-side
+    # flow (no untrigger).
+    if not game.finished:
+        log_stats_manual_termination(session_id, game)
+    game.finished = True
     save_sessions_to_disk()
-    return {"endgame_triggered": True}
+    return {"terminated": True}
 
 
 @app.post("/api/decision/{session_id}")
@@ -254,31 +310,19 @@ async def make_decision(session_id: str, body: dict = Body(...)) -> Dict[str, An
 
     if not agent_name:
         return {"error": "Missing agent name in request"}
-
     # Ensure agent exists
-    agent_exists = any(a.name == agent_name for a in game.agents)
-    if not agent_exists:
+    if not any(a.name == agent_name for a in game.agents):
         return {"error": "Invalid agent name"}
 
     # Perform the decision
     result = game.make_decision(agent_name)
-    # Ensure game is marked finished so clients switch alla vista finale
+    # Ensure game is marked finished so clients switch to endgame UI
     if not game.finished:
         game.finished = True
     save_sessions_to_disk()
     log_stats_endgame(session_id, game)
     return result
 
-
-@app.post("/api/untrigger_endgame/{session_id}")
-async def untrigger_endgame(session_id: str) -> Dict[str, Any]:
-    """Allow the detective to go back from the endgame phase to continue questioning."""
-    game: Optional[Game] = sessions.get(session_id)
-    if not game:
-        return {"error": SESSION_NOT_FOUND}
-    game.untrigger_endgame()
-    save_sessions_to_disk()
-    return {"endgame_triggered": game.endgame_triggered}
 
 
 @app.post("/api/terminate/{session_id}")
@@ -324,6 +368,7 @@ if __name__ == "__main__":
         )
 
     parser: argparse.ArgumentParser = argparse.ArgumentParser(description="Run the RogueAI FastAPI app.")
+    parser: argparse.ArgumentParser = argparse.ArgumentParser(description="Run the RogueAI FastAPI app.")
     parser.add_argument(
         "--prod",
         nargs="?",
@@ -338,4 +383,5 @@ if __name__ == "__main__":
     if not is_valid_host(host):
         raise ValueError(f"Invalid host address: {host}")
 
+    import uvicorn
     uvicorn.run(app, host=host, port=8000)

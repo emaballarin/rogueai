@@ -1,7 +1,5 @@
 let sessionId = null;
 let state = null;
-let lastError = null;
-let showTerminateConfirm = false;
 let thinkingIntervals = {};
 let appStarted = false;
 
@@ -72,8 +70,8 @@ async function newGame() {
         sessionId = data.session_id;
         localStorage.setItem('sessionId', sessionId);
         await fetchState();
-    } catch (err) {  // NOSONAR
-        showError('Could not start a new game. Please try again.');
+    } catch (err) {
+        console.error('Could not start a new game. Please try again.', err);
     }
 }
 
@@ -81,16 +79,13 @@ async function fetchState() {
     try {
         const res = await fetch(`/api/state/${ sessionId }`);
         if (!res.ok) throw new Error('Failed to fetch game state.');
-        state = await res.json();
-        lastError = null;
+    state = await res.json();
         render();
-    } catch (err) {  // NOSONAR
-        showError('Could not fetch game state. Please refresh the page.');
+    } catch (err) {
+        console.error('Could not fetch game state. Please refresh the page.', err);
     }
 }
 
-
-// Ask specific AI
 async function askQuestionFor(ai, providedQuestion = null) {
     const aiId = ai.replace(/\s+/g, '_');
     const convInputId = `conv-input-${ aiId }`;
@@ -126,22 +121,14 @@ async function askQuestionFor(ai, providedQuestion = null) {
             body: JSON.stringify({ agent_name: ai, question })
         });
         if (!res.ok) throw new Error('Failed to ask question.');
-        // stop animation for this ai
-        if (thinkingIntervals[ai]) {
-            clearInterval(thinkingIntervals[ai]);
-            thinkingIntervals[ai] = null;
-        }
+        if (thinkingIntervals[ai]) { clearInterval(thinkingIntervals[ai]); thinkingIntervals[ai] = null; }
         await fetchState();
-    } catch (err) {  // NOSONAR
-        if (thinkingIntervals[ai]) {
-            clearInterval(thinkingIntervals[ai]);
-            thinkingIntervals[ai] = null;
-        }
-        showError('Could not send question.');
+    } catch (err) {
+        if (thinkingIntervals[ai]) { clearInterval(thinkingIntervals[ai]); thinkingIntervals[ai] = null; }
+        console.error('Could not send question.', err);
     }
 }
 
-/* Shut off specific AI */
 async function shutOffAI(ai) {
     try {
         const res = await fetch(`/api/decision/${ sessionId }`, {
@@ -153,42 +140,22 @@ async function shutOffAI(ai) {
             const text = await res.text().catch(() => null);
             throw new Error(text || 'Failed to shut off AI.');
         }
-        // try to parse JSON response (may be empty)
-        const data = await res.json().catch(() => null);
-
-        // stop any thinking animations/placeholders for all AIs
+        // stop any thinking animations
         for (const k of Object.keys(thinkingIntervals)) {
-            if (thinkingIntervals[k]) {
-                clearInterval(thinkingIntervals[k]);
-                thinkingIntervals[k] = null;
-            }
+            if (thinkingIntervals[k]) { clearInterval(thinkingIntervals[k]); thinkingIntervals[k] = null; }
         }
-
         await fetchState();
-
-        // If server did not mark finished for some reason, force final view locally
-        if (data && !state.finished) {
-            if (data.decision || data.terminated || data.endgame_triggered) {
-                state.finished = true;
-                state.decision = data.decision || ai;
-                render();
-            }
-        }
-    } catch (err) {  // NOSONAR
-        showError('Could not shut off AI.');
+    } catch (err) {
+        console.error('Could not shut off AI.', err);
     }
 }
 
-/* Emoji rain effect */
+/* Emoji rain */
 function startEmojiRain(emojis = ['🎉','🎊','🥳','✨'], count = 30, duration = 4500) {
-    // remove any previous emoji rain
     const existing = document.getElementById('emoji-rain-container');
     if (existing) existing.remove();
-
     const container = document.createElement('div');
     container.id = 'emoji-rain-container';
-    container.className = 'emoji-rain';
-    // ensure inline fallback styles (in case CSS not loaded yet)
     container.style.position = 'fixed';
     container.style.left = '0';
     container.style.top = '0';
@@ -198,13 +165,11 @@ function startEmojiRain(emojis = ['🎉','🎊','🥳','✨'], count = 30, durat
     container.style.pointerEvents = 'none';
     container.style.zIndex = '1200';
     document.body.appendChild(container);
-
     let maxEnd = 0;
     for (let i = 0; i < count; i++) {
         const span = document.createElement('span');
         span.className = 'emoji';
         span.textContent = emojis[Math.floor(Math.random() * emojis.length)];
-        // random position, size, delay, duration
         const left = Math.random() * 100;
         const size = 18 + Math.round(Math.random() * 36);
         const delay = Math.random() * 1000;
@@ -218,21 +183,17 @@ function startEmojiRain(emojis = ['🎉','🎊','🥳','✨'], count = 30, durat
         span.style.animationTimingFunction = 'linear';
         span.style.animationName = 'fall';
         span.style.animationFillMode = 'forwards';
-        // initial transform rotation
         span.style.transform = `rotate(${Math.random()*360}deg)`;
         container.appendChild(span);
-
-        // track when the longest animation will end
         maxEnd = Math.max(maxEnd, delay + dur);
     }
-
-    // remove after all elements' animation ends (with buffer)
-    setTimeout(() => {
-        container.remove();
-    }, maxEnd + 500);
+    setTimeout(() => { container.remove(); }, maxEnd + 500);
 }
 
-/* Render with local history (for optimistic updates) */
+/* Render (core) */
+let mo = null;
+let resizeHandlerRegistered = false;
+
 function renderWithLocalHistory(localHistories, animateForAi = null, preserveFocusElement = null) {
     const app = document.getElementById('app');
 
@@ -245,72 +206,49 @@ function renderWithLocalHistory(localHistories, animateForAi = null, preserveFoc
 
     app.innerHTML = '';
 
-    if (showTerminateConfirm) {
-        renderTerminateConfirm();
-        return;
-    }
-
-    // Final view (single centered)
     if (state?.finished) {
         const finalContainer = document.createElement('div');
         finalContainer.className = 'final-view';
-
         const title = document.createElement('div');
         title.className = 'final-title';
-        if (state.shut_off_role === 'deceitful') {
-            title.textContent = "Congratulazioni! Hai disattivato l'IA ingannevole 🏆";
-        } else if (state.shut_off_role === 'truthful') {
-            title.textContent = "Game over, hai disattivato l'IA veritiera.";
-        } else {
-            title.textContent = state.decision ? `You shut off: ${ state.decision }` : 'Game finished';
-        }
+        if (state.shut_off_role === 'deceitful') title.textContent = "Congratulazioni! Hai disattivato l'IA ingannevole 🏆";
+        else if (state.shut_off_role === 'truthful') title.textContent = "Game over, hai disattivato l'IA veritiera.";
+        else title.textContent = state.decision ? `You shut off: ${ state.decision }` : 'Game finished';
         finalContainer.appendChild(title);
 
-        // Single Reload button (same position)
-        const centeredSection = document.createElement('div');
-        centeredSection.className = 'centered-section';
-        centeredSection.style.marginTop = '18px';
-        const btnDiv = document.createElement('div');
-        btnDiv.className = 'centered-row';
-        btnDiv.style.marginTop = '12px';
-        btnDiv.innerHTML = `<button class="terminate-btn big-reload" id="reload-btn" title="Ricomincia il gioco">⟳</button>`;
-        centeredSection.appendChild(btnDiv);
-        finalContainer.appendChild(centeredSection);
-
-        app.appendChild(finalContainer);
+    // Insert reload button directly into the final container
+    const reloadBtnWrapper = document.createElement('div');
+    reloadBtnWrapper.style.display = 'flex';
+    reloadBtnWrapper.style.justifyContent = 'center';
+    reloadBtnWrapper.style.alignItems = 'center';
+    reloadBtnWrapper.style.marginTop = '12px';
+    reloadBtnWrapper.innerHTML = `<button class="big-reload" id="reload-btn" title="Ricomincia il gioco">⟳</button>`;
+    finalContainer.appendChild(reloadBtnWrapper);
+    app.appendChild(finalContainer);
 
         const reloadBtn = document.getElementById('reload-btn');
         if (reloadBtn) reloadBtn.onclick = () => window.location.replace(window.location.pathname + '?r=' + Date.now());
-
-        // Victory -> emoji rain
-        if (state.shut_off_role === 'deceitful') {
-            startEmojiRain(['🏆','🎉','🎊','🥳','✨','🏅'], 90, 5200);
-        }
+        if (state.shut_off_role === 'deceitful') startEmojiRain(['🏆','🎉','🎊','🥳','✨','🏅'], 90, 5200);
         return;
     }
 
     if (!state) return;
 
-    // Two-column layout
     const cols = document.createElement('div');
     cols.style.display = 'flex';
     cols.style.gap = '18px';
-    // stretch columns to same height so .conversation può riempire verticalmente
     cols.style.alignItems = 'stretch';
-    // allow the cols container to grow to fill #app vertical space
     cols.style.flex = '1 1 auto';
     cols.style.minHeight = '0';
 
     for (const ai of state.agents) {
         const aiId = ai.replace(/\s+/g, '_');
-
         const col = document.createElement('div');
         col.className = 'ai-column';
         col.style.flex = '1';
         col.style.minWidth = '260px';
         col.style.position = 'relative';
 
-        // Header (localized IA-)
         const header = document.createElement('div');
         header.className = 'ai-title';
         header.style.marginBottom = '6px';
@@ -330,12 +268,10 @@ function renderWithLocalHistory(localHistories, animateForAi = null, preserveFoc
         }
         col.appendChild(subtitle);
 
-        // Conversation container
         const conv = document.createElement('div');
         conv.className = 'conversation';
         conv.id = `conv-${ aiId }`;
 
-        // Messages wrapper (bottom-aligned)
         const messagesWrap = document.createElement('div');
         messagesWrap.className = 'messages';
         messagesWrap.id = `msgs-${ aiId }`;
@@ -356,7 +292,6 @@ function renderWithLocalHistory(localHistories, animateForAi = null, preserveFoc
                 messagesWrap.appendChild(msg);
             }
         } else {
-            // signal placeholder state if no messages
             messagesWrap.classList.add('placeholder');
             const msg = document.createElement('div');
             msg.className = 'message system';
@@ -366,7 +301,6 @@ function renderWithLocalHistory(localHistories, animateForAi = null, preserveFoc
 
         conv.appendChild(messagesWrap);
 
-        // Show input only if not reached limit and game not finished/endgame
         const aiLimitReached = aiCount >= state.num_turns;
         if (!aiLimitReached && !state.finished && !state.endgame_triggered) {
             const prompt = document.createElement('div');
@@ -380,7 +314,7 @@ function renderWithLocalHistory(localHistories, animateForAi = null, preserveFoc
 
             const content = document.createElement('div');
             content.className = 'terminal-content';
-            content.id = `conv-input-${ aiId }`; // compatibility
+            content.id = `conv-input-${ aiId }`;
             content.contentEditable = 'true';
             content.setAttribute('role', 'textbox');
             content.setAttribute('aria-label', `Input per ${ ai }`);
@@ -401,7 +335,6 @@ function renderWithLocalHistory(localHistories, animateForAi = null, preserveFoc
             sendBtn.title = 'Invia';
             sendBtn.innerText = '🔍';
             sendBtn.onclick = () => askQuestionFor(ai);
-            // ensure button doesn't steal focus styling when clicked
             sendBtn.onmousedown = (ev) => ev.preventDefault();
             prompt.appendChild(sendBtn);
             conv.appendChild(prompt);
@@ -409,52 +342,37 @@ function renderWithLocalHistory(localHistories, animateForAi = null, preserveFoc
 
         col.appendChild(conv);
 
-        // Controls row
         const currentCount = state.question_counts[ai] || 0;
-        const controls = document.createElement('div');
-        controls.className = 'input-controls';
-        controls.style.marginTop = '12px';
 
         const shutEnabled = currentCount >= 1 && !state.finished && !state.endgame_triggered;
-
-         // Button to shut off AI
         const shutBtn = document.createElement('button');
         shutBtn.className = 'shut-btn';
-        const labelIA = ai.replace(/^AI-/, 'IA-'); // show "IA-x" instead of "AI-x"
+        const labelIA = ai.replace(/^AI-/, 'IA-');
         shutBtn.title = `Disattiva ${ labelIA }`;
         shutBtn.setAttribute('aria-label', `Disattiva ${ labelIA }`);
         shutBtn.innerText = '⏻';
-        // enable only if shutting off is allowed (at least one question asked)
-        if (!shutEnabled) {
-            shutBtn.disabled = true;
-        }
+        if (!shutEnabled) shutBtn.disabled = true;
         shutBtn.onclick = () => shutOffAI(ai);
-        // Don't let button steal focus styling when clicked
         shutBtn.onmousedown = (ev) => ev.preventDefault();
         col.appendChild(shutBtn);
 
-        col.appendChild(controls);
-        cols.appendChild(col);
+    cols.appendChild(col);
     }
 
-    cols && app.appendChild(cols);
+    app.appendChild(cols);
 
-    // Global reload button
+    // Global reload button (positioned relative to #app)
     const reloadBtn = document.createElement('button');
-    reloadBtn.className = 'terminate-btn big-reload';
-    reloadBtn.id = 'terminate-btn';
+    reloadBtn.className = 'big-reload';
     reloadBtn.title = 'Ricomincia il gioco';
     reloadBtn.innerText = '⟳';
     reloadBtn.onclick = async () => {
-        try {
-            if (sessionId) await fetch(`/api/terminate/${ sessionId }`, { method: 'POST' });
-        } catch (err) { /* ignore :c */ }
+        try { if (sessionId) await fetch(`/api/terminate/${ sessionId }`, { method: 'POST' }); } catch (err) {}
         window.location.replace(window.location.pathname + '?r=' + Date.now());
     };
     reloadBtn.style.visibility = 'hidden';
-    // append inside app so absolute positioning is relative to #app
     app.appendChild(reloadBtn);
-    // robust positioning function: called via rAF, on resize, and on DOM changes
+
     const positionReloadBtn = () => {
         try {
             const firstCol = cols.querySelector('.ai-column');
@@ -476,23 +394,25 @@ function renderWithLocalHistory(localHistories, animateForAi = null, preserveFoc
             } else {
                 reloadBtn.style.top = '8px';
             }
-            // reveal after position set
             reloadBtn.style.visibility = '';
-        } catch (err) {
-            // if anything fails, still show button to avoid it staying hidden
-            reloadBtn.style.visibility = '';
-        }
+        } catch (err) { reloadBtn.style.visibility = ''; }
     };
-
-    // initial positioning via rAF to wait for layout
     requestAnimationFrame(positionReloadBtn);
-    // reposition on resize
-    window.addEventListener('resize', () => requestAnimationFrame(positionReloadBtn));
-    // observe cols for DOM changes (columns, titles, etc.)
-    const mo = new MutationObserver(() => requestAnimationFrame(positionReloadBtn));
+
+    // Register a single resize handler once
+    if (!resizeHandlerRegistered) {
+        window.addEventListener('resize', () => requestAnimationFrame(positionReloadBtn));
+        resizeHandlerRegistered = true;
+    }
+
+    // Use a singleton MutationObserver; disconnect previous before creating a new one
+    if (mo) {
+        try { mo.disconnect(); } catch (e) {}
+        mo = null;
+    }
+    mo = new MutationObserver(() => requestAnimationFrame(positionReloadBtn));
     mo.observe(cols, { childList: true, subtree: true });
 
-    // Animate thinking placeholder for requested AI
     if (animateForAi) {
         const ai = animateForAi;
         const seq = [
@@ -518,20 +438,13 @@ function renderWithLocalHistory(localHistories, animateForAi = null, preserveFoc
         }, 400);
     }
 
-    // slight delay so layout/layout-driven heights are settled, then force scroll
     setTimeout(() => {
         for (const ai of state.agents) {
             const msgsEl = document.getElementById(`msgs-${ ai.replace(/\s+/g, '_') }`);
             if (msgsEl) {
-                // ensure overflow is enabled
                 msgsEl.style.overflowY = 'auto';
-                // force reflow then scroll to bottom (more reliable across browsers)
                 void msgsEl.getBoundingClientRect();
-                try {
-                    msgsEl.scrollTo({ top: msgsEl.scrollHeight, behavior: 'auto' });
-                } catch (e) {
-                    msgsEl.scrollTop = msgsEl.scrollHeight;
-                }
+                try { msgsEl.scrollTo({ top: msgsEl.scrollHeight, behavior: 'auto' }); } catch (e) { msgsEl.scrollTop = msgsEl.scrollHeight; }
             }
         }
 
@@ -568,55 +481,8 @@ function renderWithLocalHistory(localHistories, animateForAi = null, preserveFoc
     }, 80);
 }
 
-async function triggerEndgame() {
-    try {
-        const res = await fetch(`/api/manual_endgame/${ sessionId }`, { method: 'POST' });
-        if (!res.ok) throw new Error('Failed to trigger endgame.');
-        await fetchState();
-    } catch (err) {  // NOSONAR
-        showError('Could not trigger endgame.');
-    }
-}
 
-async function makeDecision() {
-    const radios = document.getElementsByName('decision-radio');
-    let choice = null;
-    for (const r of radios) if (r.checked) choice = r.value;
-    if (!choice) return alert('Please select an AI to shut off.');
-    try {
-        const res = await fetch(`/api/decision/${ sessionId }`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ agent_name: choice })
-        });
-        if (!res.ok) throw new Error('Failed to make decision.');
-        await fetchState();
-    } catch (err) {  // NOSONAR
-        showError('Could not make decision.');
-    }
-}
-
-async function backToQuestions() {
-    try {
-        const res = await fetch(`/api/untrigger_endgame/${ sessionId }`, { method: 'POST' });
-        if (!res.ok) throw new Error('Failed to go back.');
-        await fetchState();
-    } catch (err) {  // NOSONAR
-        showError('Could not return to questions.');
-    }
-}
-
-async function terminateGame() {
-    try {
-        const res = await fetch(`/api/terminate/${ sessionId }`, { method: 'POST' });
-        if (!res.ok) throw new Error('Failed to terminate game.');
-        await fetchState();
-    } catch (err) {  // NOSONAR
-        showError('Could not terminate game.');
-    }
-}
-
-function renderTerminateConfirm() {
+function render() {
     const app = document.getElementById('app');
     // Overlay
     const overlay = document.createElement('div');
@@ -673,28 +539,15 @@ function render() {  // NOSONAR
         app.contains(currentlyFocused);
 
     app.innerHTML = '';
-
-    if (!state) {
-        if (showTerminateConfirm) {
-            renderTerminateConfirm();
-            return;
-        }
-        return;
-    }
-
+    if (!state) return;
     renderWithLocalHistory(state.histories, null, shouldPreserveFocus ? currentlyFocused : null);
 }
 
-// Robust page load initialization
 function startApp() {
     if (appStarted) return;
     appStarted = true;
     newGame();
 }
 
-if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", startApp);
-} else {
-    startApp();
-}
-window.addEventListener("load", startApp); // fallback in case DOMContentLoaded fails
+if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", startApp); else startApp();
+window.addEventListener("load", startApp);
