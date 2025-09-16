@@ -10,6 +10,7 @@ import openai
 
 TRUTHFUL: int = 0
 DECEITFUL: int = 1
+SUGGESTIONS: int = 2
 
 
 def load_ai_config() -> Dict[str, Dict[str, Any]]:
@@ -28,6 +29,8 @@ def query_openai(prompt: str, role: int) -> str:
     config: Dict[str, Dict[str, Any]] = get_ai_config()
     if role == DECEITFUL:
         ai_params = config["deceitful"]
+    elif role == SUGGESTIONS:
+        ai_params = config["suggestions"]
     else:
         ai_params = config["truthful"]
     response = openai.chat.completions.create(

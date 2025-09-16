@@ -35,6 +35,7 @@ from game import Game
 from schemas import AskRequest
 from utils import get_ai_config
 from utils import query_openai
+from utils import SUGGESTIONS
 from utils import TRUTHFUL
 
 SESSION_NOT_FOUND: str = "Session not found"
@@ -257,7 +258,7 @@ def suggestion() -> Dict[str, str]:
     if prompt is None:
         return {"suggestion": random.choice(candidates)}
     try:
-        resp = query_openai(prompt, TRUTHFUL)
+        resp = query_openai(prompt, SUGGESTIONS)
         if resp:
             # sanitize to a single line and trim
             suggestion_text = " ".join(resp.splitlines()).strip()
@@ -327,7 +328,7 @@ async def ask_ai(session_id: str, req: AskRequest) -> Dict[str, Any]:
         entry = {
             "session_id": session_id,
             "type": "interaction",
-            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "timestamp": datetime.now(datetime.UTC).isoformat().replace("+00:00", "Z"),
             "agent": req.agent_name,
             "question": req.question,
             "result": result,
