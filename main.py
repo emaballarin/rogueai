@@ -9,6 +9,9 @@ JSON. The file paths for persistence are declared below; helper functions
 provide safe load/save semantics and structured stats logging.
 """
 
+import re
+import os
+import uvicorn
 import argparse
 import json
 import logging
@@ -164,14 +167,27 @@ def _append_structured_log(entry: dict[str, Any]) -> None:
     """
     data = load_stats_file()
     data.append(entry)
-    STATS_PATH.write_text(json.dumps(data, indent=2))
+    ensure_parent_dirs(STATS_PATH)
+    # Write atomically: write to a temp file in same directory and rename.
+    tmp_path = STATS_PATH.with_suffix(STATS_PATH.suffix + ".tmp")
+    encoded = json.dumps(data, indent=2, ensure_ascii=False)
+    # Write and fsync to reduce risk of corruption, then atomically rename.
+    with tmp_path.open("w", encoding="utf-8") as f:
+        f.write(encoded)
+        f.flush()
+        try:
+            # Python's file descriptor sync; best-effort on platforms that support it
+            os.fsync(f.fileno())
+        except Exception:
+            # If fsync isn't available or fails, proceed — rename still provides some safety.
+            logger.exception("fsync failed for tmp stats file %s", tmp_path)
+    tmp_path.replace(STATS_PATH)
 
 
 def log_stats_restart(session_id: str, game: Game) -> None:
     """Log a structured record on game restart."""
     entry = {
         "session_id": session_id,
-        "interactions": [{"ai": ai, "history": game.histories[ai]} for ai in game.histories],
         "interactions": [{"ai": ai, "history": game.histories[ai]} for ai in game.histories],
         "termination_type": "restart",
         "decision": None,
@@ -191,7 +207,6 @@ def log_stats_endgame(session_id: str, game: Game) -> None:
     entry = {
         "session_id": session_id,
         "interactions": [{"ai": ai, "history": game.histories[ai]} for ai in game.histories],
-        "interactions": [{"ai": ai, "history": game.histories[ai]} for ai in game.histories],
         "termination_type": "endgame",
         "decision": game.decision,
         "shut_off_role": shut_off_role,
@@ -203,7 +218,7 @@ def log_stats_endgame(session_id: str, game: Game) -> None:
 load_sessions_from_disk()
 
 
-@app.get("/", response_class=HTMLResponse)
+@app.get("/")
 def index() -> FileResponse:
     """Serve the main HTML page for the game UI."""
     return FileResponse("static/index.html")
@@ -333,10 +348,6 @@ def favicon() -> FileResponse:
 
 
 if __name__ == "__main__":
-    import argparse
-    import re
-
-    import uvicorn
 
     def is_valid_host(host: str) -> bool:
         # Simple regex for IPv4, IPv6, or domain name
@@ -350,7 +361,6 @@ if __name__ == "__main__":
             or host in {"localhost", "0.0.0.0", "127.0.0.1"}
         )
 
-    parser: argparse.ArgumentParser = argparse.ArgumentParser(description="Run the RogueAI FastAPI app.")
     parser: argparse.ArgumentParser = argparse.ArgumentParser(description="Run the RogueAI FastAPI app.")
     parser.add_argument(
         "--prod",
@@ -366,5 +376,4 @@ if __name__ == "__main__":
     if not is_valid_host(host):
         raise ValueError(f"Invalid host address: {host}")
 
-    import uvicorn
     uvicorn.run(app, host=host, port=8000)
