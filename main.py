@@ -167,13 +167,13 @@ def _append_structured_log(entry: dict[str, Any]) -> None:
     STATS_PATH.write_text(json.dumps(data, indent=2))
 
 
-def log_stats_manual_termination(session_id: str, game: Game) -> None:
-    """Log a structured record for manual termination."""
+def log_stats_restart(session_id: str, game: Game) -> None:
+    """Log a structured record on game restart."""
     entry = {
         "session_id": session_id,
         "interactions": [{"ai": ai, "history": game.histories[ai]} for ai in game.histories],
         "interactions": [{"ai": ai, "history": game.histories[ai]} for ai in game.histories],
-        "termination_type": "manual",
+        "termination_type": "restart",
         "decision": None,
         "shut_off_role": None,
         "question_counts": game.question_counts,
@@ -182,7 +182,7 @@ def log_stats_manual_termination(session_id: str, game: Game) -> None:
 
 
 def log_stats_endgame(session_id: str, game: Game) -> None:
-    """Log a structured record for endgame termination."""
+    """Log a structured record on game termination."""
     shut_off_role: Optional[str] = None
     if game.decision:
         agent = next((a for a in game.agents if a.name == game.decision), None)
@@ -277,23 +277,6 @@ async def ask_ai(session_id: str, req: AskRequest) -> Dict[str, Any]:
     return result
 
 
-@app.post("/api/manual_endgame/{session_id}")
-async def manual_endgame(session_id: str) -> Dict[str, Any]:
-    """Manually trigger the endgame phase for the session."""
-    game: Optional[Game] = sessions.get(session_id)
-    if not game:
-        return {"error": SESSION_NOT_FOUND}
-    # For the new UI we treat manual endgame as immediate termination:
-    # mark the game finished, log a manual termination entry, persist
-    # state and return terminated=True. This simplifies the client-side
-    # flow (no untrigger).
-    if not game.finished:
-        log_stats_manual_termination(session_id, game)
-    game.finished = True
-    save_sessions_to_disk()
-    return {"terminated": True}
-
-
 @app.post("/api/decision/{session_id}")
 async def make_decision(session_id: str, body: dict = Body(...)) -> Dict[str, Any]:
     """Record the detective's final decision and end the game.
@@ -331,7 +314,7 @@ def terminate_game(session_id: str) -> Dict[str, Any]:
     if not game:
         return {"error": SESSION_NOT_FOUND}
     if not game.finished:
-        log_stats_manual_termination(session_id, game)
+        log_stats_restart(session_id, game)
     game.finished = True
     save_sessions_to_disk()
     return {"terminated": True}
