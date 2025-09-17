@@ -310,7 +310,68 @@ function renderWithLocalHistory(localHistories, animateForAi = null, preserveFoc
         reloadBtnWrapper.appendChild(reloadBtn);
         finalContainer.appendChild(reloadBtnWrapper);
     reloadBtn.onclick = () => window.location.replace(window.location.pathname + '?r=' + Date.now());
+    
+    // Render final conversations summary below the title and reload button.
+    const convsWrapper = document.createElement('div');
+    convsWrapper.className = 'final-conversations';
+    convsWrapper.style.display = 'flex';
+    convsWrapper.style.gap = '18px';
+    convsWrapper.style.justifyContent = 'center';
+    convsWrapper.style.width = '100%';
+    convsWrapper.style.marginTop = '8px';
 
+    // For each agent, show a compact box with the conversation history
+    const histories = state.histories || {};
+    for (const ai of state.agents) {
+        const aiId = safeId(ai);
+        const box = document.createElement('div');
+        box.className = 'final-conv-box';
+        box.style.minWidth = '280px';
+        box.style.maxWidth = '44%';
+        box.style.background = 'rgba(0,0,0,0.25)';
+        box.style.borderRadius = '10px';
+        box.style.padding = '12px 14px';
+        box.style.boxSizing = 'border-box';
+        box.style.textAlign = 'left';
+
+        const hTitle = document.createElement('div');
+        hTitle.style.fontWeight = '800';
+        hTitle.style.marginBottom = '8px';
+        hTitle.textContent = ai.replace(/^AI-/, 'IA-');
+        box.appendChild(hTitle);
+
+        const list = document.createElement('div');
+        list.className = 'final-conv-messages';
+        list.style.maxHeight = '220px';
+        list.style.overflow = 'auto';
+        list.style.fontFamily = '"SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace';
+        list.style.fontSize = '0.95rem';
+
+        const hist = histories[ai] || [];
+        if (hist.length === 0) {
+            const empty = document.createElement('div');
+            empty.style.color = 'var(--muted)';
+            empty.textContent = 'Nessuna conversazione registrata.';
+            list.appendChild(empty);
+        } else {
+            for (let i = 0; i < hist.length; i++) {
+                const text = hist[i];
+                let cls = 'system';
+                if (text.startsWith('Detective:')) cls = 'detective';
+                else if (text.startsWith(`${ ai }:`) || text.startsWith('AI-')) cls = 'ai';
+                const line = document.createElement('div');
+                line.className = `message ${ cls }`;
+                line.style.marginBottom = '6px';
+                line.style.whiteSpace = 'pre-wrap';
+                line.textContent = text;
+                list.appendChild(line);
+            }
+        }
+        box.appendChild(list);
+        convsWrapper.appendChild(box);
+    }
+
+    finalContainer.appendChild(convsWrapper);
     app.appendChild(finalContainer);
         if (state.shut_off_role === 'deceitful') startEmojiRain(['🏆','🎉','🎊','🥳','✨','🏅'], 90, 5200);
         return;
