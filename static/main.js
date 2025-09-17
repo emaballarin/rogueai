@@ -7,6 +7,7 @@ let thinkingIntervals = {};
 let thinkingControllers = {};
 let suggestionDotsIntervals = {};
 let suggestionCache = {};
+let pendingLocalHistories = {}; // per-agent optimistic local histories for concurrent requests
 let appStarted = false;
 let showTerminateConfirm = false;
 
@@ -136,13 +137,22 @@ async function askQuestionFor(ai, providedQuestion = null) {
         inputElAfter.setAttribute('data-busy', '1');
     }
 
-    // Local optimistic update with placeholder
-    if (state && state.histories) {
-        const localHistories = JSON.parse(JSON.stringify(state.histories));
-        localHistories[ai] = localHistories[ai] || [];
-        localHistories[ai].push(`Detective: ${ question }`);
-        localHistories[ai].push(`${ ai }: [ 🧠 Sto pensando... ]`);
-        renderWithLocalHistory(localHistories, ai, shouldRestoreFocus ? currentlyFocused : null);
+    // Local optimistic update with placeholder.
+    // Use a per-agent pendingLocalHistories map so concurrent optimistic updates
+    // for different agents don't clobber each other when rendering.
+    if (state) {
+        // deep-copy of authoritative histories
+        const baseHistories = JSON.parse(JSON.stringify(state.histories || {}));
+        // merge any existing pending optimistic entries for other agents
+        for (const k of Object.keys(pendingLocalHistories)) {
+            try { baseHistories[k] = JSON.parse(JSON.stringify(pendingLocalHistories[k])); } catch (e) { baseHistories[k] = pendingLocalHistories[k]; }
+        }
+        baseHistories[ai] = baseHistories[ai] || [];
+        baseHistories[ai].push(`Detective: ${ question }`);
+        baseHistories[ai].push(`${ ai }: [ 🧠 Sto pensando... ]`);
+        // store the optimistic history for this agent so other renders can include it
+        pendingLocalHistories[ai] = baseHistories[ai];
+        renderWithLocalHistory(baseHistories, ai, shouldRestoreFocus ? currentlyFocused : null);
     }
 
     // Use AbortController per-agent so we can cancel previous requests
@@ -160,9 +170,17 @@ async function askQuestionFor(ai, providedQuestion = null) {
         });
         if (!res.ok) throw new Error('Failed to ask question.');
         stopThinking(ai);
+        // Wait for server state to reflect the response
         await fetchState();
+        // Clear the optimistic pending entry for this agent now that authoritative state arrived
+        try { delete pendingLocalHistories[ai]; } catch (e) {}
+        // Re-render to ensure UI shows authoritative state without leftover optimistic entries
+        render();
     } catch (err) {
         stopThinking(ai);
+        // If request aborted or errored, remove optimistic placeholder for this agent
+        try { delete pendingLocalHistories[ai]; } catch (e) {}
+        render();
         if (err.name === 'AbortError') return;
         console.error('Could not send question.', err);
     } finally {
@@ -580,7 +598,13 @@ function render() {
     const shouldPreserveFocus = currentlyFocused && currentlyFocused.isContentEditable && app.contains(currentlyFocused);
     app.innerHTML = '';
     if (!state) return;
-    renderWithLocalHistory(state.histories, null, shouldPreserveFocus ? currentlyFocused : null);
+    // Merge any pending optimistic per-agent histories so renders triggered
+    // by other flows (like fetchState) won't drop optimistic placeholders.
+    const merged = JSON.parse(JSON.stringify(state.histories || {}));
+    for (const k of Object.keys(pendingLocalHistories)) {
+        try { merged[k] = JSON.parse(JSON.stringify(pendingLocalHistories[k])); } catch (e) { merged[k] = pendingLocalHistories[k]; }
+    }
+    renderWithLocalHistory(merged, null, shouldPreserveFocus ? currentlyFocused : null);
 }
 
 /* Function to start the app */
