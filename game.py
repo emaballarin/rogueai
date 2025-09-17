@@ -80,9 +80,9 @@ class Game:
     def __init__(self, num_turns: int = 5) -> None:
         self.num_turns = num_turns
         if torch.rand(1).item() > 0.5:
-            self.agents = [Agent("AI-1", TRUTHFUL), Agent("AI-2", DECEITFUL)]
+            self.agents = [Agent("IA-1", TRUTHFUL), Agent("IA-2", DECEITFUL)]
         else:
-            self.agents = [Agent("AI-1", DECEITFUL), Agent("AI-2", TRUTHFUL)]
+            self.agents = [Agent("IA-1", DECEITFUL), Agent("IA-2", TRUTHFUL)]
         self.histories = {agent.name: [] for agent in self.agents}
         self.question_counts = {agent.name: 0 for agent in self.agents}
         self.finished = False

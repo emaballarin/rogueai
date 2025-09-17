@@ -337,7 +337,7 @@ function renderWithLocalHistory(localHistories, animateForAi = null, preserveFoc
         const hTitle = document.createElement('div');
         hTitle.style.fontWeight = '800';
         hTitle.style.marginBottom = '8px';
-        hTitle.textContent = ai.replace(/^AI-/, 'IA-');
+    hTitle.textContent = ai;
         box.appendChild(hTitle);
 
         const list = document.createElement('div');
@@ -390,7 +390,7 @@ function renderWithLocalHistory(localHistories, animateForAi = null, preserveFoc
 
     const header = document.createElement('div');
     header.className = 'ai-title';
-        header.textContent = ai.replace(/^AI-/, 'IA-');
+    header.textContent = ai;
         col.appendChild(header);
 
         const aiCount = state.question_counts[ai] || 0;
@@ -571,7 +571,7 @@ function renderWithLocalHistory(localHistories, animateForAi = null, preserveFoc
         const shutEnabled = currentCount >= 1 && !state.finished && !state.endgame_triggered;
     const shutBtn = document.createElement('button');
     shutBtn.className = 'agent-shutdown';
-        const labelIA = ai.replace(/^AI-/, 'IA-');
+    const labelIA = ai;
         shutBtn.title = `Disattiva ${ labelIA }`;
         shutBtn.setAttribute('aria-label', `Disattiva ${ labelIA }`);
         shutBtn.innerText = '⏻';
