@@ -208,3 +208,6 @@ nohup.out
 
 # Virtualenv symlink
 .virtualenv
+
+# Backups that should remain local
+*.bak
