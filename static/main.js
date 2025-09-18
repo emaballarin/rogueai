@@ -310,7 +310,7 @@ function renderWithLocalHistory(localHistories, animateForAi = null, preserveFoc
         reloadBtnWrapper.appendChild(reloadBtn);
         finalContainer.appendChild(reloadBtnWrapper);
     reloadBtn.onclick = () => window.location.replace(window.location.pathname + '?r=' + Date.now());
-    
+
     // Render final conversations summary below the title and reload button.
     const convsWrapper = document.createElement('div');
     convsWrapper.className = 'final-conversations';
