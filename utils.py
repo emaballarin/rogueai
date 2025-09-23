@@ -7,6 +7,7 @@ from typing import Dict
 from typing import Optional
 import os
 import openai
+from playsound import playsound
 
 TRUTHFUL: int = 0
 DECEITFUL: int = 1
@@ -54,16 +55,16 @@ def get_audio_config() -> Dict[str, Dict[str, Any]]:
     return load_audio_config()
 
 
-def speak_openai(prompt: str, selected_ai: str, question_counts: int) -> str:
-    """Use the OpenAI TTS API and return the response as an `opus` file."""
+def speak_openai(prompt: str, selected_ai: str) -> str:
+    """Convert input text to speech using OpenAI's TTS API and play the audio."""
     config: Dict[str, Dict[str, Any]] = get_audio_config()
-    if selected_ai == "IA-1":
-        ai_params = config["IA-1"]
-    else:
-        ai_params = config["IA-2"]
+    
+    ai_params = config[selected_ai]
 
-    speech_file_name = f"{selected_ai}_round{question_counts}.mp3"
-    speech_file_path = os.path.join('.audio_files', speech_file_name)
+    speech_file_name = f"{selected_ai}.opus"
+    # Ensure the .audio directory exists
+    os.makedirs('.audio', exist_ok=True)
+    speech_file_path = os.path.join('.audio', speech_file_name)
     
     with openai.audio.speech.with_streaming_response.create( 
         model=ai_params["model"], 
@@ -71,4 +72,8 @@ def speak_openai(prompt: str, selected_ai: str, question_counts: int) -> str:
         input=prompt, 
         instructions=ai_params["sys_prompt"], 
     ) as response: response.stream_to_file(speech_file_path)
-    return speech_file_path
+    
+    try:
+        playsound(speech_file_path)
+    except Exception as e:
+        print(f"Error playing sound: {e}")

@@ -5,7 +5,6 @@ import os
 from typing import Any
 from typing import Dict
 from typing import List
-from playsound import playsound
 import torch
 
 from utils import query_openai, speak_openai
@@ -15,6 +14,8 @@ DECEITFUL: int = 1
 
 logger = logging.getLogger(__name__)
 
+# Disable logs from video plugins, show only errors for audio and everything else
+os.environ["GST_DEBUG"] = "video*:0,audio*:1,*:1"
 
 class Agent:
     """Represents an AI agent in the game."""
@@ -41,10 +42,10 @@ class Agent:
         self.memory.append(f"Q: {question}\nA: {response}")
         return response
     
-    def speak(self, text: str, question_counts: Dict) -> str:
-        """Reproduce a generated `opus` file given the IA's answer."""
+    def speak(self, text: str) -> str:
+        """Reproduce agent's answer in audio."""
         try:
-            playsound(speak_openai(text, self.name, int(question_counts[self.name])))
+            speak_openai(text, self.name)
         except Exception as e:
             logger.error(f"OpenAI TTS API call failed: {e}")
     
@@ -94,9 +95,9 @@ class Game:
         self.num_turns = num_turns
         self.story = story
         if torch.rand(1).item() > 0.5:
-            self.agents = [Agent("AI-1", TRUTHFUL, self.story), Agent("AI-2", DECEITFUL, self.story)]
+            self.agents = [Agent("IA-1", TRUTHFUL, self.story), Agent("IA-2", DECEITFUL, self.story)]
         else:
-            self.agents = [Agent("AI-1", DECEITFUL, self.story), Agent("AI-2", TRUTHFUL, self.story)]
+            self.agents = [Agent("IA-1", DECEITFUL, self.story), Agent("IA-2", TRUTHFUL, self.story)]
         self.histories = {agent.name: [] for agent in self.agents}
         self.question_counts = {agent.name: 0 for agent in self.agents}
         self.finished = False
@@ -114,7 +115,7 @@ class Game:
         answer = agent.respond(self.histories[agent_name], question)
         self.histories[agent_name].append(f"{agent.name}: {answer}")
         self.question_counts[agent_name] += 1
-        agent.speak(answer, self.question_counts)
+        agent.speak(answer)
         return {"agent": agent.name, "answer": answer}
 
     def can_ask(self, agent_name: str) -> bool:

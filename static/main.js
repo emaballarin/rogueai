@@ -376,7 +376,7 @@ function renderWithLocalHistory(localHistories, animateForAi = null, preserveFoc
                 const text = hist[i];
                 let cls = 'system';
                 if (text.startsWith('Detective:')) cls = 'detective';
-                else if (text.startsWith(`${ ai }:`) || text.startsWith('AI-')) cls = 'ai';
+                else if (text.startsWith(`${ ai }:`) || text.startsWith('IA-')) cls = 'ai';
                 const line = document.createElement('div');
                 line.className = `message ${ cls }`;
                 line.style.marginBottom = '6px';
@@ -433,7 +433,7 @@ function renderWithLocalHistory(localHistories, animateForAi = null, preserveFoc
                 const line = hist[i];
                 let cls = 'system';
                 if (line.startsWith('Detective:')) cls = 'detective';
-                else if (line.startsWith(`${ ai }:`) || line.startsWith('AI-')) cls = 'ai';
+                else if (line.startsWith(`${ ai }:`) || line.startsWith('IA-')) cls = 'ai';
                 const msg = document.createElement('div');
                 msg.className = `message ${ cls }`;
                 if (i === hist.length - 1 && line.includes('[ 🧠 Sto pensando')) msg.id = `thinking-placeholder-${ aiId }`;
