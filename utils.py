@@ -45,7 +45,7 @@ def query_openai(prompt: str, role: int) -> str:
 
 def load_audio_config() -> Dict[str, Dict[str, Any]]:
     """Load AI configuration from the .prompts/audio_config.json file."""
-    with open("/home/saracandussio/Scrivania/audio_config.json", "r") as f:
+    with open(".prompts/audio_config.json", "r") as f:
         return json.load(f)
 
 

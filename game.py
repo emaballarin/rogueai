@@ -41,10 +41,10 @@ class Agent:
         self.memory.append(f"Q: {question}\nA: {response}")
         return response
     
-    def speak(self, text: str, question_counts: int) -> str:
+    def speak(self, text: str, question_counts: Dict) -> str:
         """Reproduce a generated `opus` file given the IA's answer."""
         try:
-            playsound(speak_openai(text, self.name, question_counts))
+            playsound(speak_openai(text, self.name, int(question_counts[self.name])))
         except Exception as e:
             logger.error(f"OpenAI TTS API call failed: {e}")
     
