@@ -11,6 +11,7 @@ let pendingLocalHistories = {}; // per-agent optimistic local histories for conc
 let audioPlayers = {}; // map safeId(ai) -> HTMLAudioElement
 let appStarted = false;
 let showTerminateConfirm = false;
+let audioGeneration = 0; // incrementing token to avoid race conditions (last-one-wins)
 
 /* Sanitize string to be used as HTML id */
 function safeId(name) { return name.replace(/\s+/g, '_'); }
@@ -215,19 +216,12 @@ async function askQuestionFor(ai, providedQuestion = null) {
 /* Play audio for an agent */
 async function playAudioForAgent(ai) {
     try {
-        // Respect the user-visible TTS flag stored in localStorage. When false,
-        // we intentionally do nothing (no audio fetch or playback).
         const enabled = (localStorage.getItem('ttsEnabled') || 'true') === 'true';
         if (!enabled) return; // TTS disabled: no-op
-        const key = safeId(ai);
-        // stop existing audio for this agent if any
-        try {
-            const prev = audioPlayers[key];
-            if (prev) {
-                try { prev.pause(); prev.currentTime = 0; prev.src = ''; } catch (e) {}
-                delete audioPlayers[key];
-            }
-        } catch (e) {}
+    const myGen = ++audioGeneration;
+    // Stop any currently playing audio so the newest audio wins (last-one-wins)
+    try { stopAllAudio(); } catch (e) {}
+    const key = safeId(ai);
 
         const audioUrl = `/api/audio/${sessionId}/${ai}`;
         const audio = new Audio(audioUrl);
@@ -236,18 +230,22 @@ async function playAudioForAgent(ai) {
 
         audio.onerror = (e) => {
             console.warn(`Could not play audio for ${ai}:`, e);
-            try { delete audioPlayers[key]; } catch (err) {}
+            try { if (audioPlayers[key] === audio) delete audioPlayers[key]; } catch (err) {}
         };
 
         audio.onended = () => {
-            try { delete audioPlayers[key]; } catch (e) {}
+            try { if (audioPlayers[key] === audio) delete audioPlayers[key]; } catch (e) {}
         };
-
-        // Attempt to play audio
         const playPromise = audio.play();
         if (playPromise !== undefined) {
-            playPromise.catch(error => {
+            playPromise.then(() => {
+                if (myGen !== audioGeneration) {
+                    try { audio.pause(); audio.currentTime = 0; audio.src = ''; } catch (e) {}
+                    try { if (audioPlayers[key] === audio) delete audioPlayers[key]; } catch (e) {}
+                }
+            }).catch(error => {
                 console.warn(`Audio playback failed for ${ai}:`, error);
+                try { if (audioPlayers[key] === audio) delete audioPlayers[key]; } catch (e) {}
             });
         }
     } catch (err) {
@@ -314,12 +312,12 @@ function startThinking(ai) {
     const key = safeId(ai);
     const aid = key;
     const seq = [
-        `${ ai }: [ 🧠 Sto pensando ]`,
-        `${ ai }: [ 🧠 Sto pensando. ]`,
-        `${ ai }: [ 🧠 Sto pensando.. ]`,
+        `${ ai }: [ 🧠 Sto pensando    ]`,
+        `${ ai }: [ 🧠 Sto pensando.   ]`,
+        `${ ai }: [ 🧠 Sto pensando..  ]`,
         `${ ai }: [ 🧠 Sto pensando... ]`,
-        `${ ai }: [ 🧠 Sto pensando.. ]`,
-        `${ ai }: [ 🧠 Sto pensando. ]`
+        `${ ai }: [ 🧠 Sto pensando..  ]`,
+        `${ ai }: [ 🧠 Sto pensando.   ]`
     ];
     let idx = 0;
     if (thinkingIntervals[key]) clearInterval(thinkingIntervals[key]);
