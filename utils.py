@@ -7,7 +7,7 @@ from typing import Dict
 from typing import Optional
 import os
 import openai
-from playsound import playsound
+from playsound3 import playsound
 
 TRUTHFUL: int = 0
 DECEITFUL: int = 1
