@@ -8,6 +8,7 @@ let thinkingControllers = {};
 let suggestionDotsIntervals = {};
 let suggestionCache = {};
 let pendingLocalHistories = {}; // per-agent optimistic local histories for concurrent requests
+let audioPlayers = {}; // map safeId(ai) -> HTMLAudioElement
 let appStarted = false;
 let showTerminateConfirm = false;
 
@@ -214,12 +215,32 @@ async function askQuestionFor(ai, providedQuestion = null) {
 /* Play audio for an agent */
 async function playAudioForAgent(ai) {
     try {
+        // Respect the user-visible TTS flag stored in localStorage. When false,
+        // we intentionally do nothing (no audio fetch or playback).
+        const enabled = (localStorage.getItem('ttsEnabled') || 'true') === 'true';
+        if (!enabled) return; // TTS disabled: no-op
+        const key = safeId(ai);
+        // stop existing audio for this agent if any
+        try {
+            const prev = audioPlayers[key];
+            if (prev) {
+                try { prev.pause(); prev.currentTime = 0; prev.src = ''; } catch (e) {}
+                delete audioPlayers[key];
+            }
+        } catch (e) {}
+
         const audioUrl = `/api/audio/${sessionId}/${ai}`;
         const audio = new Audio(audioUrl);
         audio.autoplay = true;
+        audioPlayers[key] = audio;
 
         audio.onerror = (e) => {
             console.warn(`Could not play audio for ${ai}:`, e);
+            try { delete audioPlayers[key]; } catch (err) {}
+        };
+
+        audio.onended = () => {
+            try { delete audioPlayers[key]; } catch (e) {}
         };
 
         // Attempt to play audio
@@ -234,9 +255,35 @@ async function playAudioForAgent(ai) {
     }
 }
 
+/* Stop audio playback helpers */
+function stopAudioForAgent(ai) {
+    try {
+        const key = safeId(ai);
+        const audio = audioPlayers[key];
+        if (audio) {
+            try { audio.pause(); audio.currentTime = 0; audio.src = ''; } catch (e) {}
+            delete audioPlayers[key];
+        }
+    } catch (e) {}
+}
+
+function stopAllAudio() {
+    try {
+        for (const k of Object.keys(audioPlayers)) {
+            try { const a = audioPlayers[k]; a.pause(); a.currentTime = 0; a.src = ''; } catch (e) {}
+            try { delete audioPlayers[k]; } catch (e) {}
+        }
+    } catch (e) {}
+}
+
+// Ensure audio stops on page unload (reload/close)
+window.addEventListener('beforeunload', () => { try { stopAllAudio(); } catch (e) {} });
+
 /* Shut off an AI */
 async function shutOffAI(ai) {
     try {
+        // stop audio for this agent immediately when shutting off
+        try { stopAudioForAgent(ai); } catch (e) {}
         const res = await fetch(`/api/decision/${ sessionId }`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -255,6 +302,7 @@ async function shutOffAI(ai) {
             thinkingControllers[k] = null;
         }
         await fetchState();
+        try { stopAudioForAgent(ai); } catch (e) {}
     } catch (err) {
         console.error('Could not shut off AI.', err);
     }
@@ -492,7 +540,10 @@ function renderWithLocalHistory(localHistories, animateForAi = null, preserveFoc
                             inputEl.focus();
                         }
                         askQuestionFor(ai, cached);
-                        return false;
+                            // If we just turned TTS off, stop any playing audio immediately
+                            if (!next) {
+                                try { stopAllAudio(); } catch (e) {}
+                            }
                     };
                     msg.appendChild(introNode);
                     msg.appendChild(link);
@@ -639,6 +690,43 @@ function renderWithLocalHistory(localHistories, animateForAi = null, preserveFoc
 
     app.appendChild(cols);
 
+    // TTS toggle button (top-left). Insert as a visible control but do not
+    // attach any behavior that triggers TTS when disabled. The button is
+    // visually transparent and should not show hover/focus effects.
+    (function ensureTtsButton() {
+        // avoid duplicating: look for existing element with the class
+        if (document.querySelector('.tts-toggle-button')) return;
+        const btn = document.createElement('button');
+        btn.className = 'tts-toggle-button';
+        btn.type = 'button';
+        // emoji content; default will be set from stored state below
+        btn.textContent = '🔊';
+        btn.title = 'Attiva/Disattiva TTS';
+        // keep keyboard activation but don't add focus styles
+        btn.onmousedown = (ev) => ev.preventDefault();
+        btn.onclick = (ev) => {
+            ev.preventDefault();
+            try {
+                const cur = (localStorage.getItem('ttsEnabled') || 'true') === 'true';
+                const next = !cur;
+                localStorage.setItem('ttsEnabled', next ? 'true' : 'false');
+                // update visual emoji
+                btn.textContent = next ? '🔊' : '🔇';
+                // If disabling TTS, stop any currently playing audio immediately
+                if (!next) {
+                    try { stopAllAudio(); } catch (e) {}
+                }
+            } catch (e) { console.warn('Could not toggle TTS flag', e); }
+            return false;
+        };
+        // initialize from storage and append
+        try {
+            const enabled = (localStorage.getItem('ttsEnabled') || 'true') === 'true';
+            btn.textContent = enabled ? '🔊' : '🔇';
+        } catch (e) { /* ignore */ }
+        document.body.appendChild(btn);
+    })();
+
     // Error banner area (hidden by default) placed centrally between columns and global controls
     const errorWrapper = document.createElement('div');
     errorWrapper.className = 'error-banner-wrapper';
@@ -657,6 +745,7 @@ function renderWithLocalHistory(localHistories, animateForAi = null, preserveFoc
     reloadBtn.innerText = '⟳';
     reloadBtn.onclick = async () => {
         try { if (sessionId) await fetch(`/api/terminate/${ sessionId }`, { method: 'POST' }); } catch (err) {}
+        try { stopAllAudio(); } catch (e) {}
         window.location.href = '/';
     };
     reloadBtn.classList.add('reload-top-center');

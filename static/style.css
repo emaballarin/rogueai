@@ -22,6 +22,36 @@
 .final-reload-wrapper{ display:flex; justify-content:center; align-items:center; margin-top:12px; }
 .reload-top-center{ position:absolute; left:50%; transform:translateX(-60%); top:clamp(12px,5vh,40px); z-index:1100; }
 
+/* TTS toggle button (top-left) - transparent, no hover/focus visual changes */
+.tts-toggle-button{
+    position:fixed;
+    left:12px;
+    top:38px;
+    z-index:1400;
+    background: transparent;
+    border: none;
+    color: var(--text);
+    font-size: 4rem;
+    line-height: 1;
+    padding: 0.15rem;
+    margin: 0;
+    cursor: pointer;
+    box-shadow: none;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    -webkit-tap-highlight-color: transparent;
+}
+/* Remove hover/focus/active visual effects entirely */
+.tts-toggle-button:hover,
+.tts-toggle-button:active,
+.tts-toggle-button:focus{
+    background: transparent !important;
+    outline: none !important;
+    box-shadow: none !important;
+    transform: none !important;
+}
+
 /* Reset / layout */
 html,body{
     width:100%;
