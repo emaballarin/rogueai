@@ -16,7 +16,7 @@ import os
 import random
 import re
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from typing import Dict
@@ -336,7 +336,8 @@ async def ask_ai(session_id: str, req: AskRequest) -> Dict[str, Any]:
         entry = {
             "session_id": session_id,
             "type": "interaction",
-            "timestamp": datetime.now(datetime.UTC).isoformat().replace("+00:00", "Z"),
+            # Use timezone.utc to get an aware datetime in UTC and format with Z suffix
+            "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             "agent": req.agent_name,
             "question": req.question,
             "result": result,

@@ -96,7 +96,11 @@ html,body{
     scrollbar-width:thin;
 }
 .messages::-webkit-scrollbar{ width:10px; }
-.messages::-webkit-scrollbar-thumb{ background:rgba(255,255,255,0.06); border-radius:6px; }
+.messages::-webkit-scrollbar-thumb{ background:rgba(255,255,255,0.12); border-radius:6px; }
+/* Make the scrollbar track transparent so only the thumb is visible */
+.messages::-webkit-scrollbar-track{ background: transparent; }
+
+/* (kept default scrollbar buttons/ends) */
 
 .messages.placeholder{ display:flex; align-items:center; justify-content:center; padding:12px; }
 .messages.placeholder .message{ margin:0; text-align:center; color:var(--muted); font-weight:700; opacity:0.95; }
@@ -106,6 +110,14 @@ html,body{
 .message.detective{ color:#43b581; font-weight:700; }
 .message.ai{ color:var(--accent); font-style:italic; }
 .message.system{ color:var(--muted-2); font-weight:700; }
+
+/* Final view message tweaks: ensure detective bold and clear contrast */
+.final-conv-box .message.detective{ font-weight:900; color:#43b581; }
+.final-conv-box .message.ai{ color:var(--accent); font-style:italic; }
+.final-conv-box .message.system{ color:var(--muted-2); }
+
+/* Also make scrollbars transparent globally for messages container (Firefox) */
+.messages{ scrollbar-color: rgba(255,255,255,0.12) transparent; }
 
 /* Suggestion link: keep color same as surrounding text, underline on hover */
 .suggestion-link{ color:inherit; text-decoration:none; cursor:pointer; }
@@ -124,6 +136,35 @@ html,body{
 .terminal-send-btn:active, .terminal-send-btn:focus{ background:rgba(255,255,255,0.05); outline:none; }
 .terminal-send-btn:disabled{ opacity:0.5; cursor:not-allowed; }
 
+/* Terminal / read button */
+.terminal-read-btn{
+    position:absolute;
+    right: calc(var(--terminal-send-size) + 5px);
+    bottom:0;
+    width:var(--terminal-send-size);
+    height:var(--terminal-send-size);
+    padding:0;
+    box-sizing:border-box;
+    line-height:1;
+    border-radius:var(--btn-radius);
+    border:none;
+    background:transparent;
+    color:var(--text);
+    font-size:2rem;
+    font-weight:700;
+    display:inline-flex;
+    align-items:end;
+    justify-content:center;
+    cursor:pointer;
+    box-shadow:none;
+    transition:background 0.12s;
+    z-index:6;
+    min-width: 0;
+}
+.terminal-read-btn:hover{ background:rgba(255,255,255,0.03); }
+.terminal-read-btn:active, .terminal-read-btn:focus{ background:rgba(255,255,255,0.05); outline:none; }
+.terminal-read-btn:disabled{ opacity:0.5; cursor:not-allowed; }
+
 /* Buttons */
 button{ background:#7289da; color:var(--text); border:none; border-radius:var(--btn-radius); padding:14px 32px; font-size:1.2rem; font-weight:700; cursor:pointer; transition:background 0.2s; min-width:120px; box-sizing:border-box; }
 button:active, button:focus{ background:#99aab5; outline:none; }
@@ -140,9 +181,28 @@ button:active, button:focus{ background:#99aab5; outline:none; }
 .agent-shutdown:disabled{ opacity:0.35; cursor:not-allowed; pointer-events:none; }
 
 /* Final view */
-.final-view{ position:fixed; left:50%; top:56%; transform:translate(-50%,-50%); z-index:1150; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:18px; width:calc(100% - 48px); box-sizing:border-box; text-align:center; padding:16px; height:auto; }
+.final-view{ position:fixed; left:50%; top:52%; transform:translate(-50%,-46%); z-index:1250; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:18px; width:calc(100% - 48px); box-sizing:border-box; text-align:center; padding:16px; height:auto; max-height:84vh; overflow:auto; }
 .final-title{ font-size:clamp(2.6rem,7.5vw,6rem); font-weight:900; margin:0; color:var(--text); line-height:1.02; }
 .final-view > button, .final-view button{ position:relative; transform:none; margin-top:6px; }
+
+/* Final conversations summary inside final view */
+.final-conversations{ width:100%; display:flex; gap:18px; justify-content:center; align-items:flex-start; flex-wrap:wrap; }
+.final-conv-box{ background:rgba(0,0,0,0.35); border-radius:10px; padding:12px; box-sizing:border-box; color:var(--text); min-width:260px; max-width:46%; flex:1 1 300px; }
+.final-conv-box .message{ color:var(--text); margin-bottom:6px; font-size:0.95rem; }
+
+@media (max-width:900px){
+    .final-conv-box{ max-width:100%; flex-basis:100%; }
+}
+
+/* Make final-view conversation scrollbars match the main messages style */
+.final-conv-messages::-webkit-scrollbar{ width:10px; }
+.final-conv-messages::-webkit-scrollbar-thumb{ background:rgba(255,255,255,0.12); border-radius:6px; }
+.final-conv-messages::-webkit-scrollbar-track{ background: transparent; }
+
+/* Firefox: use transparent track and set thumb color for both message containers */
+.messages, .final-conv-messages { scrollbar-color: rgba(255,255,255,0.12) transparent; scrollbar-width: thin; }
+
+/* Default scrollbar buttons/track pieces are preserved */
 
 /* Error banner between shut-off buttons */
 .error-banner-wrapper{ position:absolute; left:50%; transform:translateX(-50%); bottom:calc(-1 * var(--shut-gap) - 6px + var(--error-banner-lift)); width:auto; display:flex; justify-content:center; pointer-events:none; z-index:1050; }
@@ -151,8 +211,27 @@ button:active, button:focus{ background:#99aab5; outline:none; }
 .error-banner p{ margin:0; white-space:pre-wrap; }
 
 /* Emoji rain */
-#emoji-rain-container{ position:fixed; pointer-events:none; left:0; top:0; width:100%; height:100vh; overflow:hidden; z-index:1200; }
-#emoji-rain-container .emoji{ position:absolute; top:-10vh; will-change:transform,opacity; opacity:0.95; filter:drop-shadow(0 6px 10px rgba(0,0,0,0.35)); animation-name:fall; animation-timing-function:linear; animation-iteration-count:1; animation-fill-mode:forwards; }
+#emoji-rain-container{
+    position:fixed;
+    pointer-events:none;
+    left:0;
+    top:0;
+    width:100%;
+    height:100vh;
+    overflow:hidden;
+    z-index:1400;
+}
+#emoji-rain-container .emoji{
+    position:absolute;
+    top:-10vh;
+    will-change:transform,opacity;
+    opacity:0.95;
+    filter:drop-shadow(0 6px 10px rgba(0,0,0,0.35));
+    animation-name:fall;
+    animation-timing-function:linear;
+    animation-iteration-count:1;
+    animation-fill-mode:forwards;
+}
 @keyframes fall{ 0%{ transform:translateY(0) rotate(0deg); opacity:1; } 60%{ opacity:1; } 100%{ transform:translateY(110vh) rotate(360deg); opacity:0.9; } }
 
 [role="textbox"]{ outline-offset:2px; }

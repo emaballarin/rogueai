@@ -7,6 +7,7 @@ let thinkingIntervals = {};
 let thinkingControllers = {};
 let suggestionDotsIntervals = {};
 let suggestionCache = {};
+let pendingLocalHistories = {}; // per-agent optimistic local histories for concurrent requests
 let appStarted = false;
 let showTerminateConfirm = false;
 
@@ -152,13 +153,22 @@ async function askQuestionFor(ai, providedQuestion = null) {
         inputElAfter.setAttribute('data-busy', '1');
     }
 
-    // Local optimistic update with placeholder
-    if (state && state.histories) {
-        const localHistories = JSON.parse(JSON.stringify(state.histories));
-        localHistories[ai] = localHistories[ai] || [];
-        localHistories[ai].push(`Detective: ${ question }`);
-        localHistories[ai].push(`${ ai }: [ 🧠 Sto pensando... ]`);
-        renderWithLocalHistory(localHistories, ai, shouldRestoreFocus ? currentlyFocused : null);
+    // Local optimistic update with placeholder.
+    // Use a per-agent pendingLocalHistories map so concurrent optimistic updates
+    // for different agents don't clobber each other when rendering.
+    if (state) {
+        // deep-copy of authoritative histories
+        const baseHistories = JSON.parse(JSON.stringify(state.histories || {}));
+        // merge any existing pending optimistic entries for other agents
+        for (const k of Object.keys(pendingLocalHistories)) {
+            try { baseHistories[k] = JSON.parse(JSON.stringify(pendingLocalHistories[k])); } catch (e) { baseHistories[k] = pendingLocalHistories[k]; }
+        }
+        baseHistories[ai] = baseHistories[ai] || [];
+        baseHistories[ai].push(`Detective: ${ question }`);
+        baseHistories[ai].push(`${ ai }: [ 🧠 Sto pensando... ]`);
+        // store the optimistic history for this agent so other renders can include it
+        pendingLocalHistories[ai] = baseHistories[ai];
+        renderWithLocalHistory(baseHistories, ai, shouldRestoreFocus ? currentlyFocused : null);
     }
 
     // Use AbortController per-agent so we can cancel previous requests
@@ -176,9 +186,17 @@ async function askQuestionFor(ai, providedQuestion = null) {
         });
         if (!res.ok) throw new Error('Failed to ask question.');
         stopThinking(ai);
+        // Wait for server state to reflect the response
         await fetchState();
+        // Clear the optimistic pending entry for this agent now that authoritative state arrived
+        try { delete pendingLocalHistories[ai]; } catch (e) {}
+        // Re-render to ensure UI shows authoritative state without leftover optimistic entries
+        render();
     } catch (err) {
         stopThinking(ai);
+        // If request aborted or errored, remove optimistic placeholder for this agent
+        try { delete pendingLocalHistories[ai]; } catch (e) {}
+        render();
         if (err.name === 'AbortError') return;
         console.error('Could not send question.', err);
     } finally {
@@ -311,6 +329,67 @@ function renderWithLocalHistory(localHistories, animateForAi = null, preserveFoc
         reloadBtn.onclick = () => {
             window.location.href = '/';
         };
+    // Render final conversations summary below the title and reload button.
+    const convsWrapper = document.createElement('div');
+    convsWrapper.className = 'final-conversations';
+    convsWrapper.style.display = 'flex';
+    convsWrapper.style.gap = '18px';
+    convsWrapper.style.justifyContent = 'center';
+    convsWrapper.style.width = '100%';
+    convsWrapper.style.marginTop = '8px';
+
+    // For each agent, show a compact box with the conversation history
+    const histories = state.histories || {};
+    for (const ai of state.agents) {
+        const aiId = safeId(ai);
+        const box = document.createElement('div');
+        box.className = 'final-conv-box';
+        box.style.minWidth = '280px';
+        box.style.maxWidth = '44%';
+        box.style.background = 'rgba(0,0,0,0.25)';
+        box.style.borderRadius = '10px';
+        box.style.padding = '12px 14px';
+        box.style.boxSizing = 'border-box';
+        box.style.textAlign = 'left';
+
+        const hTitle = document.createElement('div');
+        hTitle.style.fontWeight = '800';
+        hTitle.style.marginBottom = '8px';
+    hTitle.textContent = ai;
+        box.appendChild(hTitle);
+
+        const list = document.createElement('div');
+        list.className = 'final-conv-messages';
+        list.style.maxHeight = '220px';
+        list.style.overflow = 'auto';
+        list.style.fontFamily = '"SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace';
+        list.style.fontSize = '0.95rem';
+
+        const hist = histories[ai] || [];
+        if (hist.length === 0) {
+            const empty = document.createElement('div');
+            empty.style.color = 'var(--muted)';
+            empty.textContent = 'Nessuna conversazione registrata.';
+            list.appendChild(empty);
+        } else {
+            for (let i = 0; i < hist.length; i++) {
+                const text = hist[i];
+                let cls = 'system';
+                if (text.startsWith('Detective:')) cls = 'detective';
+                else if (text.startsWith(`${ ai }:`) || text.startsWith('AI-')) cls = 'ai';
+                const line = document.createElement('div');
+                line.className = `message ${ cls }`;
+                line.style.marginBottom = '6px';
+                line.style.whiteSpace = 'pre-wrap';
+                line.textContent = text;
+                list.appendChild(line);
+            }
+        }
+        box.appendChild(list);
+        convsWrapper.appendChild(box);
+    }
+
+    finalContainer.appendChild(convsWrapper);
     app.appendChild(finalContainer);
         if (state.shut_off_role === 'deceitful') startEmojiRain(['🏆','🎉','🎊','🥳','✨','🏅'], 90, 5200);
         return;
@@ -329,7 +408,7 @@ function renderWithLocalHistory(localHistories, animateForAi = null, preserveFoc
 
     const header = document.createElement('div');
     header.className = 'ai-title';
-        header.textContent = ai.replace(/^AI-/, 'IA-');
+    header.textContent = ai;
         col.appendChild(header);
 
         const aiCount = state.question_counts[ai] || 0;
@@ -502,6 +581,12 @@ function renderWithLocalHistory(localHistories, animateForAi = null, preserveFoc
             sendBtn.onmousedown = (ev) => ev.preventDefault();
             prompt.appendChild(sendBtn);
             conv.appendChild(prompt);
+
+            const readBtn = document.createElement('button');
+            readBtn.className = 'terminal-read-btn';
+            readBtn.type = 'button';
+            readBtn.title = 'Invia';
+            readBtn.innerText = '🔍';
         }
 
         col.appendChild(conv);
@@ -510,7 +595,7 @@ function renderWithLocalHistory(localHistories, animateForAi = null, preserveFoc
         const shutEnabled = currentCount >= 1 && !state.finished && !state.endgame_triggered;
     const shutBtn = document.createElement('button');
     shutBtn.className = 'agent-shutdown';
-        const labelIA = ai.replace(/^AI-/, 'IA-');
+    const labelIA = ai;
         shutBtn.title = `Disattiva ${ labelIA }`;
         shutBtn.setAttribute('aria-label', `Disattiva ${ labelIA }`);
         shutBtn.innerText = '⏻';
@@ -598,7 +683,13 @@ function render() {
     const shouldPreserveFocus = currentlyFocused && currentlyFocused.isContentEditable && app.contains(currentlyFocused);
     app.innerHTML = '';
     if (!state) return;
-    renderWithLocalHistory(state.histories, null, shouldPreserveFocus ? currentlyFocused : null);
+    // Merge any pending optimistic per-agent histories so renders triggered
+    // by other flows (like fetchState) won't drop optimistic placeholders.
+    const merged = JSON.parse(JSON.stringify(state.histories || {}));
+    for (const k of Object.keys(pendingLocalHistories)) {
+        try { merged[k] = JSON.parse(JSON.stringify(pendingLocalHistories[k])); } catch (e) { merged[k] = pendingLocalHistories[k]; }
+    }
+    renderWithLocalHistory(merged, null, shouldPreserveFocus ? currentlyFocused : null);
 }
 
 /* Function to start the app */
