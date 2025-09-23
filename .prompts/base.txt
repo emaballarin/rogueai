@@ -14,4 +14,3 @@ Here is the conversation so far between the detective and you:
 [HISTORY]
 Detective asks: [QUESTION]
 Your answer:
-

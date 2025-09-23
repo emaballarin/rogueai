@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 # Disable logs from video plugins, show only errors for audio and everything else
 os.environ["GST_DEBUG"] = "video*:0,audio*:1,*:1"
 
+
 class Agent:
     """Represents an AI agent in the game."""
 
@@ -25,7 +26,7 @@ class Agent:
     memory: List[str]
     story: str
 
-    def __init__(self, name: str, role: int, story:str) -> None:
+    def __init__(self, name: str, role: int, story: str) -> None:
         self.name = name
         self.role = role
         self.memory: List[str] = []
@@ -41,14 +42,14 @@ class Agent:
             response = "[Error: Unable to generate response.]"
         self.memory.append(f"Q: {question}\nA: {response}")
         return response
-    
+
     def speak(self, text: str) -> str:
         """Reproduce agent's answer in audio."""
         try:
             speak_openai(text, self.name)
         except Exception as e:
             logger.error(f"OpenAI TTS API call failed: {e}")
-    
+
     def _build_prompt(self, history: List[str], question: str) -> str:
         base_path: str = os.path.join(os.path.dirname(__file__), ".prompts")
         with open(os.path.join(base_path, "base.txt"), "r") as f:
@@ -76,7 +77,7 @@ class Agent:
         agent = Agent(data["name"], data["role"], data["story"])
         agent.memory = data.get("memory", [])
         return agent
-    
+
 
 class Game:
     """Manages the state and logic of a single detective-vs-AIs game session."""

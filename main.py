@@ -225,14 +225,17 @@ def log_stats_endgame(session_id: str, game: Game) -> None:
 # Load sessions on startup
 load_sessions_from_disk()
 
+
 @app.get("/")
 def root() -> FileResponse:
     return FileResponse("static/start.html")
+
 
 @app.get("/index")
 def index() -> FileResponse:
     """Serve the main HTML page for the game UI."""
     return FileResponse("static/index.html")
+
 
 @app.get("/api/suggestion")
 def suggestion() -> Dict[str, str]:
@@ -272,11 +275,9 @@ def suggestion() -> Dict[str, str]:
 
     return {"suggestion": random.choice(candidates)}
 
+
 @app.post("/api/new_game")
-def new_game(
-    story: str = Body(...),
-    session_id: Optional[str] = Body(default=None, embed=True)
-) -> Dict[str, str]:
+def new_game(story: str = Body(...), session_id: Optional[str] = Body(default=None, embed=True)) -> Dict[str, str]:
     """Start a new game session with the chosen story (default if not provided)."""
 
     if session_id is not None:
