@@ -211,3 +211,6 @@ nohup.out
 
 # Backups that should remain local
 *.bak
+
+# Audio files
+.audio_files/

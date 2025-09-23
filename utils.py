@@ -5,7 +5,7 @@ from functools import lru_cache
 from typing import Any
 from typing import Dict
 from typing import Optional
-
+import os
 import openai
 
 TRUTHFUL: int = 0
@@ -41,3 +41,34 @@ def query_openai(prompt: str, role: int) -> str:
     )
     content: Optional[str] = response.choices[0].message.content
     return content.strip() if content is not None else ""
+
+
+def load_audio_config() -> Dict[str, Dict[str, Any]]:
+    """Load AI configuration from the .prompts/audio_config.json file."""
+    with open("/home/saracandussio/Scrivania/audio_config.json", "r") as f:
+        return json.load(f)
+
+
+@lru_cache(maxsize=1)
+def get_audio_config() -> Dict[str, Dict[str, Any]]:
+    return load_audio_config()
+
+
+def speak_openai(prompt: str, selected_ai: str, question_counts: int) -> str:
+    """Use the OpenAI TTS API and return the response as an `opus` file."""
+    config: Dict[str, Dict[str, Any]] = get_audio_config()
+    if selected_ai == "IA-1":
+        ai_params = config["IA-1"]
+    else:
+        ai_params = config["IA-2"]
+
+    speech_file_name = f"{selected_ai}_round{question_counts}.mp3"
+    speech_file_path = os.path.join('.audio_files', speech_file_name)
+    
+    with openai.audio.speech.with_streaming_response.create( 
+        model=ai_params["model"], 
+        voice=ai_params["speaker"], 
+        input=prompt, 
+        instructions=ai_params["sys_prompt"], 
+    ) as response: response.stream_to_file(speech_file_path)
+    return speech_file_path

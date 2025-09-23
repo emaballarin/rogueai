@@ -5,10 +5,10 @@ import os
 from typing import Any
 from typing import Dict
 from typing import List
-
+from playsound import playsound
 import torch
 
-from utils import query_openai
+from utils import query_openai, speak_openai
 
 TRUTHFUL: int = 0
 DECEITFUL: int = 1
@@ -40,7 +40,14 @@ class Agent:
             response = "[Error: Unable to generate response.]"
         self.memory.append(f"Q: {question}\nA: {response}")
         return response
-
+    
+    def speak(self, text: str, question_counts: int) -> str:
+        """Reproduce a generated `opus` file given the IA's answer."""
+        try:
+            playsound(speak_openai(text, self.name, question_counts))
+        except Exception as e:
+            logger.error(f"OpenAI TTS API call failed: {e}")
+    
     def _build_prompt(self, history: List[str], question: str) -> str:
         base_path: str = os.path.join(os.path.dirname(__file__), ".prompts")
         with open(os.path.join(base_path, "base.txt"), "r") as f:
@@ -107,6 +114,7 @@ class Game:
         answer = agent.respond(self.histories[agent_name], question)
         self.histories[agent_name].append(f"{agent.name}: {answer}")
         self.question_counts[agent_name] += 1
+        agent.speak(answer, self.question_counts)
         return {"agent": agent.name, "answer": answer}
 
     def can_ask(self, agent_name: str) -> bool:
