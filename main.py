@@ -352,7 +352,8 @@ async def ask_ai(session_id: str, req: AskRequest) -> Dict[str, Any]:
 
 
 @app.get("/api/audio/{session_id}/{agent_name}")
-async def get_audio(session_id: str, agent_name: str) -> StreamingResponse:
+@app.get("/api/audio/{session_id}/{agent_name}/{version}")
+async def get_audio(session_id: str, agent_name: str, version: int = None) -> StreamingResponse:
     """Get the latest audio for an agent in a session."""
     game: Optional[Game] = sessions.get(session_id)
     if not game:

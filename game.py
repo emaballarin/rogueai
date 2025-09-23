@@ -26,6 +26,7 @@ class Agent:
     memory: List[str]
     story: str
     latest_audio: bytes | None
+    audio_version: int
 
     def __init__(self, name: str, role: int, story: str) -> None:
         self.name = name
@@ -33,6 +34,7 @@ class Agent:
         self.memory: List[str] = []
         self.story: str = story
         self.latest_audio: bytes | None = None
+        self.audio_version: int = 0
 
     def respond(self, history: List[str], question: str) -> str:
         """Generate a response to the detective's question using OpenAI."""
@@ -49,6 +51,7 @@ class Agent:
         """Generate audio for agent's answer and store it."""
         try:
             self.latest_audio = speak_openai(text, self.name)
+            self.audio_version += 1
         except Exception as e:
             logger.error(f"OpenAI TTS API call failed: {e}")
             self.latest_audio = None
@@ -73,12 +76,19 @@ class Agent:
         return prompt
 
     def to_dict(self) -> dict:
-        return {"name": self.name, "role": self.role, "memory": self.memory, "story": self.story}
+        return {
+            "name": self.name,
+            "role": self.role,
+            "memory": self.memory,
+            "story": self.story,
+            "audio_version": self.audio_version,
+        }
 
     @staticmethod
     def from_dict(data: dict) -> "Agent":
         agent = Agent(data["name"], data["role"], data["story"])
         agent.memory = data.get("memory", [])
+        agent.audio_version = data.get("audio_version", 0)
         agent.latest_audio = None
         return agent
 
@@ -121,7 +131,12 @@ class Game:
         self.histories[agent_name].append(f"{agent.name}: {answer}")
         self.question_counts[agent_name] += 1
         agent.speak(answer)
-        return {"agent": agent.name, "answer": answer, "has_audio": agent.latest_audio is not None}
+        return {
+            "agent": agent.name,
+            "answer": answer,
+            "has_audio": agent.latest_audio is not None,
+            "audio_version": agent.audio_version,
+        }
 
     def can_ask(self, agent_name: str) -> bool:
         if self.finished or self.endgame_triggered:

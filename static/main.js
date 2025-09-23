@@ -192,7 +192,7 @@ async function askQuestionFor(ai, providedQuestion = null) {
 
         // If audio is available, play it automatically
         if (result.has_audio) {
-            playAudioForAgent(ai);
+            playAudioForAgent(ai, result.audio_version);
         }
 
         // Wait for server state to reflect the response
@@ -214,7 +214,7 @@ async function askQuestionFor(ai, providedQuestion = null) {
 }
 
 /* Play audio for an agent */
-async function playAudioForAgent(ai) {
+async function playAudioForAgent(ai, audioVersion = null) {
     try {
         const enabled = (localStorage.getItem('ttsEnabled') || 'true') === 'true';
         if (!enabled) return; // TTS disabled: no-op
@@ -223,7 +223,7 @@ async function playAudioForAgent(ai) {
     try { stopAllAudio(); } catch (e) {}
     const key = safeId(ai);
 
-        const audioUrl = `/api/audio/${sessionId}/${ai}`;
+        const audioUrl = audioVersion ? `/api/audio/${sessionId}/${ai}/${audioVersion}` : `/api/audio/${sessionId}/${ai}`;
         const audio = new Audio(audioUrl);
         audio.autoplay = true;
         audioPlayers[key] = audio;
