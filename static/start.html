@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>RogueAI – Choose Your Story</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="stylesheet" href="/static/start_style.css">
+</head>
+<body>
+  <h1>Scegli la storia</h1>
+  <div class="stories">
+    <div class="story" onclick="startGame('email')">
+      <img src="/static/images/email.png" alt="Email malevola" />
+      <span>Email malevola</span>
+    </div>
+    <div class="story" onclick="startGame('bank_credentials')">
+      <img src="/static/images/bank_credentials.png" alt="Le credenziali rubate" />
+      <span>Le credenziali rubate</span>
+    </div>
+    <div class="story" onclick="startGame('marvel')">
+      <img src="/static/images/marvel.png" alt="Visione vs Ultron" />
+      <span>Visione vs Ultron</span>
+    </div>
+  </div>
+
+  <script>
+    function startGame(story) {
+      // redirect to index.html with story query
+      window.location.href = `/index?story=${encodeURIComponent(story)}`;
+    }
+  </script>
+</body>
+</html>

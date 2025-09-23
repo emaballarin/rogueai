@@ -84,22 +84,38 @@ function setCaretPosition(element, position) {
 
 /* Start a new game session */
 async function newGame() {
-    try {
-        let storedSessionId = localStorage.getItem('sessionId');
-        const res = await fetch('/api/new_game', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ session_id: storedSessionId })
-        });
-        if (!res.ok) throw new Error('Failed to start new game.');
-        const data = await res.json();
-        sessionId = data.session_id;
-        localStorage.setItem('sessionId', sessionId);
-        await fetchState();
-    } catch (err) {
-        console.error('Could not start a new game. Please try again.', err);
-    }
+  try {
+    // Check if a sessionId is already stored
+    let storedSessionId = localStorage.getItem('sessionId');
+
+    const params = new URLSearchParams(window.location.search);
+
+    const story = params.get('story')// || 'classic';
+
+    const res = await fetch('/api/new_game', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        session_id: storedSessionId,
+        story: story
+      })
+    });
+
+    if (!res.ok) throw new Error('Failed to start new game.');
+
+    const data = await res.json();
+    sessionId = data.session_id;
+    localStorage.setItem('sessionId', sessionId);
+
+    console.log('Game started with story:', story, 'sessionId:', sessionId);
+
+    await fetchState(); // your existing function to load the game state
+
+  } catch (err) {
+    console.error('Could not start a new game. Please try again.', err);
+  }
 }
+
 
 /* Fetch current game state from backend */
 async function fetchState() {
@@ -291,8 +307,10 @@ function renderWithLocalHistory(localHistories, animateForAi = null, preserveFoc
         reloadBtn.innerText = '⟳';
         reloadBtnWrapper.appendChild(reloadBtn);
         finalContainer.appendChild(reloadBtnWrapper);
-    reloadBtn.onclick = () => window.location.replace(window.location.pathname + '?r=' + Date.now());
-
+    //reloadBtn.onclick = () => window.location.replace(window.location.pathname + '?r=' + Date.now());
+        reloadBtn.onclick = () => {
+            window.location.href = '/';
+        };
     app.appendChild(finalContainer);
         if (state.shut_off_role === 'deceitful') startEmojiRain(['🏆','🎉','🎊','🥳','✨','🏅'], 90, 5200);
         return;
@@ -524,7 +542,7 @@ function renderWithLocalHistory(localHistories, animateForAi = null, preserveFoc
     reloadBtn.innerText = '⟳';
     reloadBtn.onclick = async () => {
         try { if (sessionId) await fetch(`/api/terminate/${ sessionId }`, { method: 'POST' }); } catch (err) {}
-        window.location.replace(window.location.pathname + '?r=' + Date.now());
+        window.location.href = '/';
     };
     reloadBtn.classList.add('reload-top-center');
     app.appendChild(reloadBtn);

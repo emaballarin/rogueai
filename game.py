@@ -22,11 +22,13 @@ class Agent:
     name: str
     role: int
     memory: List[str]
+    story: str
 
-    def __init__(self, name: str, role: int) -> None:
+    def __init__(self, name: str, role: int, story:str) -> None:
         self.name = name
         self.role = role
         self.memory: List[str] = []
+        self.story: str = story
 
     def respond(self, history: List[str], question: str) -> str:
         """Generate a response to the detective's question using OpenAI."""
@@ -43,27 +45,30 @@ class Agent:
         base_path: str = os.path.join(os.path.dirname(__file__), ".prompts")
         with open(os.path.join(base_path, "base.txt"), "r") as f:
             base_template: str = f.read()
+        with open(os.path.join(base_path, f"known_facts_{self.story}.txt"), "r") as f:
+            known_facts: str = f.read()
         if self.role == TRUTHFUL:
-            with open(os.path.join(base_path, "truthful.txt"), "r") as f:
+            with open(os.path.join(base_path, f"truthful_{self.story}.txt"), "r") as f:
                 role_instructions: str = f.read()
         else:
-            with open(os.path.join(base_path, "deceitful.txt"), "r") as f:
+            with open(os.path.join(base_path, f"deceitful_{self.story}.txt"), "r") as f:
                 role_instructions: str = f.read()
         prompt: str = base_template.replace("{name}", self.name)
+        prompt = prompt.replace("[KNOWN_FACTS]", known_facts.strip())
         prompt = prompt.replace("[ROLE_INSTRUCTIONS]", role_instructions.strip())
         prompt = prompt.replace("[HISTORY]", "\n".join(history))
         prompt = prompt.replace("[QUESTION]", question)
         return prompt
 
     def to_dict(self) -> dict:
-        return {"name": self.name, "role": self.role, "memory": self.memory}
+        return {"name": self.name, "role": self.role, "memory": self.memory, "story": self.story}
 
     @staticmethod
     def from_dict(data: dict) -> "Agent":
-        agent = Agent(data["name"], data["role"])
+        agent = Agent(data["name"], data["role"], data["story"])
         agent.memory = data.get("memory", [])
         return agent
-
+    
 
 class Game:
     """Manages the state and logic of a single detective-vs-AIs game session."""
@@ -76,13 +81,15 @@ class Game:
     endgame_triggered: bool
     decision: str
     selected_ai: str
+    story: str
 
-    def __init__(self, num_turns: int = 5) -> None:
+    def __init__(self, story: str, num_turns: int = 5) -> None:
         self.num_turns = num_turns
+        self.story = story
         if torch.rand(1).item() > 0.5:
-            self.agents = [Agent("AI-1", TRUTHFUL), Agent("AI-2", DECEITFUL)]
+            self.agents = [Agent("AI-1", TRUTHFUL, self.story), Agent("AI-2", DECEITFUL, self.story)]
         else:
-            self.agents = [Agent("AI-1", DECEITFUL), Agent("AI-2", TRUTHFUL)]
+            self.agents = [Agent("AI-1", DECEITFUL, self.story), Agent("AI-2", TRUTHFUL, self.story)]
         self.histories = {agent.name: [] for agent in self.agents}
         self.question_counts = {agent.name: 0 for agent in self.agents}
         self.finished = False
@@ -130,6 +137,7 @@ class Game:
     def to_dict(self) -> dict:
         return {
             "num_turns": self.num_turns,
+            "story": self.story,
             "agents": [a.to_dict() for a in self.agents],
             "histories": self.histories,
             "question_counts": self.question_counts,
@@ -141,7 +149,7 @@ class Game:
 
     @staticmethod
     def from_dict(data: dict) -> "Game":
-        game = Game(num_turns=data["num_turns"])
+        game = Game(num_turns=data["num_turns"], story=data["story"])
         game.agents = [Agent.from_dict(a) for a in data["agents"]]
         game.histories = data["histories"]
         game.question_counts = data["question_counts"]
