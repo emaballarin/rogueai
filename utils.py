@@ -5,9 +5,7 @@ from functools import lru_cache
 from typing import Any
 from typing import Dict
 from typing import Optional
-import os
 import openai
-from playsound3 import playsound
 
 TRUTHFUL: int = 0
 DECEITFUL: int = 1
@@ -55,16 +53,11 @@ def get_audio_config() -> Dict[str, Dict[str, Any]]:
     return load_audio_config()
 
 
-def speak_openai(prompt: str, selected_ai: str) -> str:
-    """Convert input text to speech using OpenAI's TTS API and play the audio."""
+def speak_openai(prompt: str, selected_ai: str) -> bytes:
+    """Convert input text to speech using OpenAI's TTS API and return audio data."""
     config: Dict[str, Dict[str, Any]] = get_audio_config()
 
     ai_params = config[selected_ai]
-
-    speech_file_name = f"{selected_ai}.opus"
-    # Ensure the .audio directory exists
-    os.makedirs(".audio", exist_ok=True)
-    speech_file_path = os.path.join(".audio", speech_file_name)
 
     with openai.audio.speech.with_streaming_response.create(
         model=ai_params["model"],
@@ -72,9 +65,4 @@ def speak_openai(prompt: str, selected_ai: str) -> str:
         input=prompt,
         instructions=ai_params["sys_prompt"],
     ) as response:
-        response.stream_to_file(speech_file_path)
-
-    try:
-        playsound(speech_file_path)
-    except Exception as e:
-        print(f"Error playing sound: {e}")
+        return response.read()

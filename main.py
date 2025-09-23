@@ -28,6 +28,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.responses import HTMLResponse
+from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 import config
@@ -35,6 +36,7 @@ from game import Game
 from schemas import AskRequest
 from utils import get_ai_config
 from utils import query_openai
+from utils import speak_openai
 from utils import SUGGESTIONS
 from utils import TRUTHFUL
 
@@ -347,6 +349,27 @@ async def ask_ai(session_id: str, req: AskRequest) -> Dict[str, Any]:
     except Exception:
         logger.exception("Failed to append interaction to stats for %s", session_id)
     return result
+
+
+@app.get("/api/audio/{session_id}/{agent_name}")
+async def get_audio(session_id: str, agent_name: str) -> StreamingResponse:
+    """Get the latest audio for an agent in a session."""
+    game: Optional[Game] = sessions.get(session_id)
+    if not game:
+        return StreamingResponse(iter([]), media_type="audio/opus", status_code=404)
+
+    agent = next((a for a in game.agents if a.name == agent_name), None)
+    if not agent or not hasattr(agent, "latest_audio"):
+        return StreamingResponse(iter([]), media_type="audio/opus", status_code=404)
+
+    audio_data = agent.latest_audio
+    if not audio_data:
+        return StreamingResponse(iter([]), media_type="audio/opus", status_code=404)
+
+    def audio_stream():
+        yield audio_data
+
+    return StreamingResponse(audio_stream(), media_type="audio/opus")
 
 
 @app.post("/api/decision/{session_id}")

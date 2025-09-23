@@ -185,7 +185,14 @@ async function askQuestionFor(ai, providedQuestion = null) {
             signal: controller.signal,
         });
         if (!res.ok) throw new Error('Failed to ask question.');
+        const result = await res.json();
         stopThinking(ai);
+
+        // If audio is available, play it automatically
+        if (result.has_audio) {
+            playAudioForAgent(ai);
+        }
+
         // Wait for server state to reflect the response
         await fetchState();
         // Clear the optimistic pending entry for this agent now that authoritative state arrived
@@ -201,6 +208,29 @@ async function askQuestionFor(ai, providedQuestion = null) {
         console.error('Could not send question.', err);
     } finally {
         if (inputElAfter) inputElAfter.removeAttribute('data-busy');
+    }
+}
+
+/* Play audio for an agent */
+async function playAudioForAgent(ai) {
+    try {
+        const audioUrl = `/api/audio/${sessionId}/${ai}`;
+        const audio = new Audio(audioUrl);
+        audio.autoplay = true;
+
+        audio.onerror = (e) => {
+            console.warn(`Could not play audio for ${ai}:`, e);
+        };
+
+        // Attempt to play audio
+        const playPromise = audio.play();
+        if (playPromise !== undefined) {
+            playPromise.catch(error => {
+                console.warn(`Audio playback failed for ${ai}:`, error);
+            });
+        }
+    } catch (err) {
+        console.warn(`Error setting up audio for ${ai}:`, err);
     }
 }
 

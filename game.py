@@ -25,12 +25,14 @@ class Agent:
     role: int
     memory: List[str]
     story: str
+    latest_audio: bytes | None
 
     def __init__(self, name: str, role: int, story: str) -> None:
         self.name = name
         self.role = role
         self.memory: List[str] = []
         self.story: str = story
+        self.latest_audio: bytes | None = None
 
     def respond(self, history: List[str], question: str) -> str:
         """Generate a response to the detective's question using OpenAI."""
@@ -44,11 +46,12 @@ class Agent:
         return response
 
     def speak(self, text: str) -> str:
-        """Reproduce agent's answer in audio."""
+        """Generate audio for agent's answer and store it."""
         try:
-            speak_openai(text, self.name)
+            self.latest_audio = speak_openai(text, self.name)
         except Exception as e:
             logger.error(f"OpenAI TTS API call failed: {e}")
+            self.latest_audio = None
 
     def _build_prompt(self, history: List[str], question: str) -> str:
         base_path: str = os.path.join(os.path.dirname(__file__), ".prompts")
@@ -76,6 +79,7 @@ class Agent:
     def from_dict(data: dict) -> "Agent":
         agent = Agent(data["name"], data["role"], data["story"])
         agent.memory = data.get("memory", [])
+        agent.latest_audio = None
         return agent
 
 
@@ -117,7 +121,7 @@ class Game:
         self.histories[agent_name].append(f"{agent.name}: {answer}")
         self.question_counts[agent_name] += 1
         agent.speak(answer)
-        return {"agent": agent.name, "answer": answer}
+        return {"agent": agent.name, "answer": answer, "has_audio": agent.latest_audio is not None}
 
     def can_ask(self, agent_name: str) -> bool:
         if self.finished or self.endgame_triggered:
