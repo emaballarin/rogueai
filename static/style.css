@@ -136,6 +136,35 @@ html,body{
 .terminal-send-btn:active, .terminal-send-btn:focus{ background:rgba(255,255,255,0.05); outline:none; }
 .terminal-send-btn:disabled{ opacity:0.5; cursor:not-allowed; }
 
+/* Terminal / read button */
+.terminal-read-btn{
+    position:absolute;
+    right: calc(var(--terminal-send-size) + 5px);
+    bottom:0;
+    width:var(--terminal-send-size);
+    height:var(--terminal-send-size);
+    padding:0;
+    box-sizing:border-box;
+    line-height:1;
+    border-radius:var(--btn-radius);
+    border:none;
+    background:transparent;
+    color:var(--text);
+    font-size:2rem;
+    font-weight:700;
+    display:inline-flex;
+    align-items:end;
+    justify-content:center;
+    cursor:pointer;
+    box-shadow:none;
+    transition:background 0.12s;
+    z-index:6;
+    min-width: 0;
+}
+.terminal-read-btn:hover{ background:rgba(255,255,255,0.03); }
+.terminal-read-btn:active, .terminal-read-btn:focus{ background:rgba(255,255,255,0.05); outline:none; }
+.terminal-read-btn:disabled{ opacity:0.5; cursor:not-allowed; }
+
 /* Buttons */
 button{ background:#7289da; color:var(--text); border:none; border-radius:var(--btn-radius); padding:14px 32px; font-size:1.2rem; font-weight:700; cursor:pointer; transition:background 0.2s; min-width:120px; box-sizing:border-box; }
 button:active, button:focus{ background:#99aab5; outline:none; }
@@ -182,8 +211,27 @@ button:active, button:focus{ background:#99aab5; outline:none; }
 .error-banner p{ margin:0; white-space:pre-wrap; }
 
 /* Emoji rain */
-#emoji-rain-container{ position:fixed; pointer-events:none; left:0; top:0; width:100%; height:100vh; overflow:hidden; z-index:1200; }
-#emoji-rain-container .emoji{ position:absolute; top:-10vh; will-change:transform,opacity; opacity:0.95; filter:drop-shadow(0 6px 10px rgba(0,0,0,0.35)); animation-name:fall; animation-timing-function:linear; animation-iteration-count:1; animation-fill-mode:forwards; }
+#emoji-rain-container{
+    position:fixed;
+    pointer-events:none;
+    left:0;
+    top:0;
+    width:100%;
+    height:100vh;
+    overflow:hidden;
+    z-index:1400;
+}
+#emoji-rain-container .emoji{
+    position:absolute;
+    top:-10vh;
+    will-change:transform,opacity;
+    opacity:0.95;
+    filter:drop-shadow(0 6px 10px rgba(0,0,0,0.35));
+    animation-name:fall;
+    animation-timing-function:linear;
+    animation-iteration-count:1;
+    animation-fill-mode:forwards;
+}
 @keyframes fall{ 0%{ transform:translateY(0) rotate(0deg); opacity:1; } 60%{ opacity:1; } 100%{ transform:translateY(110vh) rotate(360deg); opacity:0.9; } }
 
 [role="textbox"]{ outline-offset:2px; }

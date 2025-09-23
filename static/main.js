@@ -563,6 +563,12 @@ function renderWithLocalHistory(localHistories, animateForAi = null, preserveFoc
             sendBtn.onmousedown = (ev) => ev.preventDefault();
             prompt.appendChild(sendBtn);
             conv.appendChild(prompt);
+
+            const readBtn = document.createElement('button');
+            readBtn.className = 'terminal-read-btn';
+            readBtn.type = 'button';
+            readBtn.title = 'Invia';
+            readBtn.innerText = '🔍';
         }
 
         col.appendChild(conv);
