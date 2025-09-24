@@ -13,9 +13,6 @@ clean:
 
 format:
 	@if [ -n "$(PYTHON_FILES)" ]; then \
-#		for file in $(PYTHON_FILES); do \
-#			reorder-python-imports --py310-plus "$$file" || exit 1; \
-#		done; \
 		ruff format --config "$(RUFF_CONFIG)" . || exit 1; \
 	fi
 	@if [ -n "$(REQUIREMENTS_FILES)" ]; then \
@@ -57,7 +54,7 @@ gitpush: format precau precra clean gitall
 clfmt: format clean
 
 runapp:
-	@./run_app.sh
+	@./start_app.sh
 
 cleanup:
 	@cd ./scripts/ && ./clean_sessions_and_stats.sh
