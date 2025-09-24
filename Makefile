@@ -2,7 +2,7 @@ RUFF_CONFIG := ~/ruffconfigs/default/ruff.toml
 PYTHON_FILES := $(shell find . -name "*.py" -type f)
 REQUIREMENTS_FILES := $(shell find . -name "requirements.txt" -type f)
 
-.PHONY: help clean format deployhooks precau precra gitall check-git-status
+.PHONY: help clean format deployhooks precau precra gitall check-git-status runapp cleanup virtualenv
 
 help:
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -55,3 +55,12 @@ fmt: format
 gitpre: format precau precra clean
 gitpush: format precau precra clean gitall
 clfmt: format clean
+
+runapp:
+	@./run_app.sh
+
+cleanup:
+	@cd ./scripts/ && ./clean_sessions_and_stats.sh
+
+virtualenv:
+	@cd ./scripts/ && ./prepare_virtualenv.sh
