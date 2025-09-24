@@ -3,16 +3,16 @@
     "truthful": {
         "model": "gpt-4.1",
         "max_tokens": 250,
-        "temperature": 0.75
+        "temperature": 0.8
     },
     "deceitful": {
         "model": "gpt-4.1",
         "max_tokens": 250,
-        "temperature": 0.75
+        "temperature": 0.8
     },
     "suggestions": {
         "model": "gpt-4.1",
         "max_tokens": 50,
-        "temperature": 0.75
+        "temperature": 0.9
     }
 }
