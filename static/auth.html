@@ -199,10 +199,13 @@
           localStorage.setItem('rogueai_auth_time', Date.now().toString());
 
           // Set cookie for server-side authentication
-          document.cookie = 'rogueai_authenticated=true; path=/; max-age=259200'; // 3 days (~TSNext)
+          document.cookie = 'rogueai_authenticated=true; path=/; max-age=86399'; // 1 day minus 1 second
 
           setTimeout(() => {
             window.location.href = '/';
+            setTimeout(() => {
+              window.location.reload();
+            }, 100);
           }, 1000);
           return;
         }
@@ -239,6 +242,9 @@
     window.onload = function() {
       if (localStorage.getItem('rogueai_authenticated') === 'true' || getCookie('rogueai_authenticated') === 'true') {
         window.location.href = '/';
+        setTimeout(() => {
+          window.location.reload();
+        }, 100);
         return;
       }
       document.getElementById('passwordInput').focus();
