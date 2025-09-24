@@ -5,9 +5,12 @@ import os
 from typing import Any
 from typing import Dict
 from typing import List
+from typing import Self
+
 import torch
 
-from utils import query_openai, speak_openai
+from utils import query_openai
+from utils import speak_openai
 
 TRUTHFUL: int = 0
 DECEITFUL: int = 1
@@ -28,7 +31,7 @@ class Agent:
     latest_audio: bytes | None
     audio_version: int
 
-    def __init__(self, name: str, role: int, story: str) -> None:
+    def __init__(self: Self, name: str, role: int, story: str) -> None:
         self.name = name
         self.role = role
         self.memory: List[str] = []
@@ -36,7 +39,7 @@ class Agent:
         self.latest_audio: bytes | None = None
         self.audio_version: int = 0
 
-    def respond(self, history: List[str], question: str) -> str:
+    def respond(self: Self, history: List[str], question: str) -> str:
         """Generate a response to the detective's question using OpenAI."""
         prompt: str = self._build_prompt(history, question)
         try:
@@ -47,7 +50,7 @@ class Agent:
         self.memory.append(f"Q: {question}\nA: {response}")
         return response
 
-    def speak(self, text: str) -> str:
+    def speak(self: Self, text: str) -> str:
         """Generate audio for agent's answer and store it."""
         try:
             self.latest_audio = speak_openai(text, self.name)
@@ -56,7 +59,7 @@ class Agent:
             logger.error(f"OpenAI TTS API call failed: {e}")
             self.latest_audio = None
 
-    def _build_prompt(self, history: List[str], question: str) -> str:
+    def _build_prompt(self: Self, history: List[str], question: str) -> str:
         base_path: str = os.path.join(os.path.dirname(__file__), ".prompts")
         with open(os.path.join(base_path, "base.txt"), "r") as f:
             base_template: str = f.read()
@@ -75,7 +78,7 @@ class Agent:
         prompt = prompt.replace("[QUESTION]", question)
         return prompt
 
-    def to_dict(self) -> dict:
+    def to_dict(self: Self) -> dict:
         return {
             "name": self.name,
             "role": self.role,
@@ -106,7 +109,7 @@ class Game:
     selected_ai: str
     story: str
 
-    def __init__(self, story: str, num_turns: int = 5) -> None:
+    def __init__(self: Self, story: str, num_turns: int = 5) -> None:
         self.num_turns = num_turns
         self.story = story
         if torch.rand(1).item() > 0.5:
@@ -120,7 +123,7 @@ class Game:
         self.decision = ""
         self.selected_ai = self.agents[0].name
 
-    def next_turn(self, agent_name: str, question: str) -> Dict[str, Any]:
+    def next_turn(self: Self, agent_name: str, question: str) -> Dict[str, Any]:
         if self.finished:
             return {"error": "The game is over. Please start a new game."}
         if self.endgame_triggered and not self.finished:
@@ -163,7 +166,7 @@ class Game:
         if self.endgame_triggered and not self.finished:
             self.endgame_triggered = False
 
-    def to_dict(self) -> dict:
+    def to_dict(self: Self) -> dict:
         return {
             "num_turns": self.num_turns,
             "story": self.story,
@@ -188,5 +191,5 @@ class Game:
         game.selected_ai = data["selected_ai"]
         return game
 
-    def is_over(self) -> bool:
+    def is_over(self: Self) -> bool:
         return self.finished

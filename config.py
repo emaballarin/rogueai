@@ -15,7 +15,7 @@ if not api_key:
 openai.api_key = api_key
 
 
-def init():
+def init() -> None:
     """
     This function is a placeholder to ensure that the OpenAI API key is always set.
     """

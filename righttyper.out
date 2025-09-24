@@ -1,0 +1,73 @@
+/home/emaballarin/repositories/rogueai/config.py:
+=================================================
+
+init
+
+- def init():
++ def init() -> None:
+?           ++++++++
+
+/home/emaballarin/repositories/rogueai/game.py:
+===============================================
+
+Agent.__init__
+
+- def __init__(self, name: str, role: int, story: str) -> None:
++ def __init__(self: Self, name: str, role: int, story: str) -> None:
+?                  ++++++
+
+Agent._build_prompt
+
+- def _build_prompt(self, history: List[str], question: str) -> str:
++ def _build_prompt(self: Self, history: List[str], question: str) -> str:
+?                       ++++++
+
+Agent.respond
+
+- def respond(self, history: List[str], question: str) -> str:
++ def respond(self: Self, history: List[str], question: str) -> str:
+?                 ++++++
+
+Agent.speak
+
+- def speak(self, text: str) -> str:
++ def speak(self: Self, text: str) -> str:
+?               ++++++
+
+Agent.to_dict
+
+- def to_dict(self) -> dict:
++ def to_dict(self: Self) -> dict:
+?                 ++++++
+
+Game.__init__
+
+- def __init__(self, story: str, num_turns: int = 5) -> None:
++ def __init__(self: Self, story: str, num_turns: int = 5) -> None:
+?                  ++++++
+
+Game.is_over
+
+- def is_over(self) -> bool:
++ def is_over(self: Self) -> bool:
+?                 ++++++
+
+Game.next_turn
+
+- def next_turn(self, agent_name: str, question: str) -> Dict[str, Any]:
++ def next_turn(self: Self, agent_name: str, question: str) -> Dict[str, Any]:
+?                   ++++++
+
+Game.to_dict
+
+- def to_dict(self) -> dict:
++ def to_dict(self: Self) -> dict:
+?                 ++++++
+
+/home/emaballarin/repositories/rogueai/main.py:
+===============================================
+
+get_audio.<locals>.audio_stream
+
+- def audio_stream():
++ def audio_stream() -> Iterator[bytes]:

@@ -16,7 +16,9 @@ import os
 import random
 import re
 import uuid
-from datetime import datetime, timezone
+from collections.abc import Iterator
+from datetime import datetime
+from datetime import timezone
 from pathlib import Path
 from typing import Any
 from typing import Dict
@@ -367,7 +369,7 @@ async def get_audio(session_id: str, agent_name: str, version: int = None) -> St
     if not audio_data:
         return StreamingResponse(iter([]), media_type="audio/opus", status_code=404)
 
-    def audio_stream():
+    def audio_stream() -> Iterator[bytes]:
         yield audio_data
 
     return StreamingResponse(audio_stream(), media_type="audio/opus")
