@@ -27,12 +27,12 @@ from typing import Optional
 import uvicorn
 from fastapi import Body
 from fastapi import FastAPI
+from fastapi import Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.responses import HTMLResponse
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi import Request
 
 import config
 from game import Game
