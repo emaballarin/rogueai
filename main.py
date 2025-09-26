@@ -184,16 +184,22 @@ def _append_structured_log(entry: dict[str, Any]) -> None:
     tmp_path = STATS_PATH.with_suffix(STATS_PATH.suffix + ".tmp")
     encoded = json.dumps(data, indent=2, ensure_ascii=False)
     # Write and fsync to reduce risk of corruption, then atomically rename.
-    with tmp_path.open("w", encoding="utf-8") as f:
-        f.write(encoded)
-        f.flush()
-        try:
-            # Python's file descriptor sync; best-effort on platforms that support it
-            os.fsync(f.fileno())
-        except Exception:
-            # If fsync isn't available or fails, proceed — rename still provides some safety.
-            logger.exception("fsync failed for tmp stats file %s", tmp_path)
-    tmp_path.replace(STATS_PATH)
+    try:
+        with tmp_path.open("w", encoding="utf-8") as f:
+            f.write(encoded)
+            f.flush()
+            try:
+                # Python's file descriptor sync; best-effort on platforms that support it
+                os.fsync(f.fileno())
+            except Exception:
+                # If fsync isn't available or fails, proceed — rename still provides some safety.
+                logger.exception("fsync failed for tmp stats file %s", tmp_path)
+        tmp_path.replace(STATS_PATH)
+    except Exception:
+        # Clean up temp file if replace fails and log error, but don't crash the webapp
+        if tmp_path.exists():
+            tmp_path.unlink()
+        logger.exception("Failed to write stats file %s, continuing without logging", STATS_PATH)
 
 
 def log_stats_restart(session_id: str, game: Game) -> None:
@@ -316,7 +322,10 @@ def new_game(story: str = Body(...), session_id: Optional[str] = Body(default=No
 
     sessions[new_session_id] = Game(num_turns=num_turns, story=story)
 
-    save_sessions_to_disk()
+    try:
+        save_sessions_to_disk()
+    except Exception:
+        logger.exception("Failed to save sessions after creating new game, continuing")
     return {"session_id": new_session_id, "story": story}
 
 
@@ -354,7 +363,10 @@ async def ask_ai(session_id: str, req: AskRequest) -> Dict[str, Any]:
     if not game:
         return {"error": SESSION_NOT_FOUND}
     result = game.next_turn(req.agent_name, req.question)
-    save_sessions_to_disk()
+    try:
+        save_sessions_to_disk()
+    except Exception:
+        logger.exception("Failed to save sessions after turn, continuing")
     # Record this interaction in the structured stats log so chats are
     # preserved as they happen (not only at termination). This is kept
     # best-effort: failures to append logs shouldn't break the API.
@@ -421,8 +433,14 @@ async def make_decision(session_id: str, body: dict = Body(...)) -> Dict[str, An
     # Ensure game is marked finished so clients switch to endgame UI
     if not game.finished:
         game.finished = True
-    save_sessions_to_disk()
-    log_stats_endgame(session_id, game)
+    try:
+        save_sessions_to_disk()
+    except Exception:
+        logger.exception("Failed to save sessions after decision, continuing")
+    try:
+        log_stats_endgame(session_id, game)
+    except Exception:
+        logger.exception("Failed to log endgame stats, continuing")
     return result
 
 
@@ -432,9 +450,15 @@ def terminate_game(session_id: str) -> Dict[str, Any]:
     if not game:
         return {"error": SESSION_NOT_FOUND}
     if not game.finished:
-        log_stats_restart(session_id, game)
+        try:
+            log_stats_restart(session_id, game)
+        except Exception:
+            logger.exception("Failed to log restart stats, continuing")
     game.finished = True
-    save_sessions_to_disk()
+    try:
+        save_sessions_to_disk()
+    except Exception:
+        logger.exception("Failed to save sessions after termination, continuing")
     return {"terminated": True}
 
 
