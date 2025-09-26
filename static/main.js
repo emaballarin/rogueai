@@ -12,9 +12,27 @@ let audioPlayers = {}; // map safeId(ai) -> HTMLAudioElement
 let appStarted = false;
 let showTerminateConfirm = false;
 let audioGeneration = 0; // incrementing token to avoid race conditions (last-one-wins)
+let easterEggWords = []; // track special words across all user input
 
 /* Sanitize string to be used as HTML id */
 function safeId(name) { return name.replace(/\s+/g, '_'); }
+
+/* Check for Easter egg words in user input */
+function checkEasterEggWords(text) {
+    const specialWords = ['dammello', 'dammelli', 'cobba', 'cobbe', 'cubo del bulo', 'cubi del bulo', 'drone d\'ario', 'droni d\'ario'];
+    const lowerText = text.toLowerCase();
+
+    for (const word of specialWords) {
+        if (lowerText.includes(word) && !easterEggWords.includes(word)) {
+            easterEggWords.push(word);
+        }
+    }
+}
+
+/* Check if we have enough Easter egg words for the special ending */
+function hasEasterEggEnding() {
+    return easterEggWords.length >= 2;
+}
 
 /* Show a transient or persistent error message in the central error banner */
 function showError(message) {
@@ -143,6 +161,9 @@ async function askQuestionFor(ai, providedQuestion = null) {
         question = inputEl.textContent.trim();
     }
     if (!question) return;
+
+    // Check for Easter egg words in user input
+    checkEasterEggWords(question);
 
     // Store current focus state before clearing
     const currentlyFocused = document.activeElement;
@@ -388,7 +409,10 @@ function renderWithLocalHistory(localHistories, animateForAi = null, preserveFoc
         finalContainer.className = 'final-view';
         const title = document.createElement('div');
         title.className = 'final-title';
-        if (state.shut_off_role === 'deceitful') title.textContent = "Congratulazioni! Hai disattivato l'IA ingannevole 🏆";
+        if (state.shut_off_role === 'deceitful') {
+            title.textContent = "Congratulazioni! Hai disattivato l'IA ingannevole 🏆";
+            if (hasEasterEggEnding()) title.textContent += " Ora noi mostrare cammello! 🐫 🐪";
+        }
         else if (state.shut_off_role === 'truthful') title.textContent = "Game over, hai disattivato l'IA veritiera.";
         else title.textContent = state.decision ? `You shut off: ${ state.decision }` : 'Game finished';
         finalContainer.appendChild(title);
@@ -467,7 +491,13 @@ function renderWithLocalHistory(localHistories, animateForAi = null, preserveFoc
 
     finalContainer.appendChild(convsWrapper);
     app.appendChild(finalContainer);
-        if (state.shut_off_role === 'deceitful') startEmojiRain(['🏆','🎉','🎊','🥳','✨','🏅'], 90, 5200);
+        if (state.shut_off_role === 'deceitful') {
+            if (hasEasterEggEnding()) {
+                startEmojiRain(['🐪','🐪','🐪','🐪','🐪','🐪'], 90, 5200);
+            } else {
+                startEmojiRain(['🏆','🎉','🎊','🥳','✨','🏅'], 90, 5200);
+            }
+        }
         return;
     }
 
