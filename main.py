@@ -237,34 +237,14 @@ def log_stats_endgame(session_id: str, game: Game) -> None:
 load_sessions_from_disk()
 
 
-@app.get("/auth")
-def auth_page() -> FileResponse:
-    return FileResponse("static/auth.html")
-
-
-@app.get("/.auth/sha512")
-def get_auth_hash() -> FileResponse:
-    return FileResponse(".auth/sha512")
-
-
-def is_authenticated(request: Request) -> bool:
-    """Check if user is authenticated via cookie or header."""
-    auth_cookie = request.cookies.get("rogueai_authenticated")
-    return auth_cookie == "true"
-
-
 @app.get("/")
-def root(request: Request) -> FileResponse:
-    if not is_authenticated(request):
-        return FileResponse("static/auth.html")
+def root() -> FileResponse:
     return FileResponse("static/start.html")
 
 
 @app.get("/index")
-def index(request: Request) -> FileResponse:
+def index() -> FileResponse:
     """Serve the main HTML page for the game UI."""
-    if not is_authenticated(request):
-        return FileResponse("static/auth.html")
     return FileResponse("static/index.html")
 
 
