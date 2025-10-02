@@ -20,6 +20,7 @@ format:
 			sort-requirements "$$file" || exit 1; \
 		done; \
 	fi
+	prettier --write .
 
 deployhooks:
 	@if [ -d ./.githooks ]; then \

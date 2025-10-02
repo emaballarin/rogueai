@@ -30,12 +30,14 @@ h1 {
   flex-direction: column;
   align-items: center;
   cursor: pointer;
-  transition: transform 0.25s ease, box-shadow 0.25s ease;
+  transition:
+    transform 0.25s ease,
+    box-shadow 0.25s ease;
 }
 
 .story:hover {
   transform: scale(1.1); /* Slightly larger hover effect */
-  box-shadow: 0 10px 20px rgba(0,0,0,0.6); /* Stronger shadow */
+  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.6); /* Stronger shadow */
 }
 
 .story img {
@@ -45,7 +47,7 @@ h1 {
   object-fit: cover;
   margin-bottom: 1.2rem;
   border: 4px solid #30363d;
-  box-shadow: 0 8px 16px rgba(0,0,0,0.5); /* Slightly bigger shadow */
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.5); /* Slightly bigger shadow */
 }
 
 .story span {
