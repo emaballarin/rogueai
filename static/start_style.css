@@ -1,57 +1,57 @@
 /* styles.css */
 body {
-  font-family: Arial, sans-serif;
-  background: #0d1117;
-  color: #f0f6fc;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center; /* Shift content toward top */
-  min-height: 100vh;
-  margin: 0;
-  padding: 3rem 2rem 2rem 2rem; /* More top padding for spacing */
+    font-family: Arial, sans-serif;
+    background: #0d1117;
+    color: #f0f6fc;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center; /* Shift content toward top */
+    min-height: 100vh;
+    margin: 0;
+    padding: 3rem 2rem 2rem 2rem; /* More top padding for spacing */
 }
 
 h1 {
-  font-size: 4.5rem; /* Increased font size */
-  margin-bottom: 4rem; /* More spacing below title */
-  text-align: center;
+    font-size: 4.5rem; /* Increased font size */
+    margin-bottom: 4rem; /* More spacing below title */
+    text-align: center;
 }
 
 .stories {
-  display: flex;
-  gap: 3.5rem; /* Slightly bigger gap */
-  flex-wrap: wrap;
-  justify-content: center;
+    display: flex;
+    gap: 3.5rem; /* Slightly bigger gap */
+    flex-wrap: wrap;
+    justify-content: center;
 }
 
 .story {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  cursor: pointer;
-  transition:
-    transform 0.25s ease,
-    box-shadow 0.25s ease;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    cursor: pointer;
+    transition:
+        transform 0.25s ease,
+        box-shadow 0.25s ease;
 }
 
 .story:hover {
-  transform: scale(1.1); /* Slightly larger hover effect */
-  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.6); /* Stronger shadow */
+    transform: scale(1.1); /* Slightly larger hover effect */
+    box-shadow: 0 10px 20px rgba(0, 0, 0, 0.6); /* Stronger shadow */
 }
 
 .story img {
-  width: 320px; /* Increased image size */
-  height: 320px;
-  border-radius: 16px;
-  object-fit: cover;
-  margin-bottom: 1.2rem;
-  border: 4px solid #30363d;
-  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.5); /* Slightly bigger shadow */
+    width: 320px; /* Increased image size */
+    height: 320px;
+    border-radius: 16px;
+    object-fit: cover;
+    margin-bottom: 1.2rem;
+    border: 4px solid #30363d;
+    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.5); /* Slightly bigger shadow */
 }
 
 .story span {
-  font-size: 2rem; /* Bigger text */
-  font-weight: bold;
-  text-align: center;
+    font-size: 2rem; /* Bigger text */
+    font-weight: bold;
+    text-align: center;
 }

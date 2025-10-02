@@ -48,9 +48,9 @@ This file defines conventions and best practices for Agents when handling code-r
 
 - **Add type annotations**
   Use Python’s modern, native type-hinting style. For example:
-  - `tuple[int, float]` instead of `Tuple[int, float]`
-  - `int | str | None` instead of `Union[int, str, None]`
-  - Import abstract collection types from `collections.abc` instead of `typing` when applicable.
+    - `tuple[int, float]` instead of `Tuple[int, float]`
+    - `int | str | None` instead of `Union[int, str, None]`
+    - Import abstract collection types from `collections.abc` instead of `typing` when applicable.
 
 - **Code style and linting**
   Format and lint with [Ruff](https://github.com/astral-sh/ruff).
