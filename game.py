@@ -39,21 +39,21 @@ class Agent:
         self.latest_audio: bytes | None = None
         self.audio_version: int = 0
 
-    def respond(self: Self, history: List[str], question: str) -> str:
+    def respond(self: Self, history: List[str], question: str, api_key: str | None = None) -> str:
         """Generate a response to the detective's question using OpenAI."""
         prompt: str = self._build_prompt(history, question)
         try:
-            response: str = query_openai(prompt, self.role)
+            response: str = query_openai(prompt, self.role, api_key)
         except Exception as e:
             logger.error(f"OpenAI API call failed: {e}")
             response = "[Error: Unable to generate response.]"
         self.memory.append(f"Q: {question}\nA: {response}")
         return response
 
-    def speak(self: Self, text: str) -> str:
+    def speak(self: Self, text: str, api_key: str | None = None) -> str:
         """Generate audio for agent's answer and store it."""
         try:
-            self.latest_audio = speak_openai(text, self.name)
+            self.latest_audio = speak_openai(text, self.name, api_key)
             self.audio_version += 1
         except Exception as e:
             logger.error(f"OpenAI TTS API call failed: {e}")
@@ -123,17 +123,17 @@ class Game:
         self.decision = ""
         self.selected_ai = self.agents[0].name
 
-    def next_turn(self: Self, agent_name: str, question: str) -> Dict[str, Any]:
+    def next_turn(self: Self, agent_name: str, question: str, api_key: str | None = None) -> Dict[str, Any]:
         if self.finished:
             return {"error": "The game is over. Please start a new game."}
         if self.endgame_triggered and not self.finished:
             return {"error": "Endgame: Please make your final decision."}
         agent = next(a for a in self.agents if a.name == agent_name)
         self.histories[agent_name].append(f"Detective: {question}")
-        answer = agent.respond(self.histories[agent_name], question)
+        answer = agent.respond(self.histories[agent_name], question, api_key)
         self.histories[agent_name].append(f"{agent.name}: {answer}")
         self.question_counts[agent_name] += 1
-        agent.speak(answer)
+        agent.speak(answer, api_key)
         return {
             "agent": agent.name,
             "answer": answer,

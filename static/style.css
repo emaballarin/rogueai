@@ -69,6 +69,127 @@
     transform: none !important;
 }
 
+/* API Key button (top-right) */
+.api-key-button {
+    position: fixed;
+    right: 12px;
+    top: 38px;
+    z-index: 1400;
+    background: transparent;
+    border: none;
+    color: var(--text);
+    font-size: 4rem;
+    line-height: 1;
+    padding: 0.15rem;
+    margin: 0;
+    cursor: pointer;
+    box-shadow: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    -webkit-tap-highlight-color: transparent;
+}
+.api-key-button:hover,
+.api-key-button:active,
+.api-key-button:focus {
+    background: transparent !important;
+    outline: none !important;
+    box-shadow: none !important;
+    transform: none !important;
+}
+
+/* Modal overlay */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.75);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2000;
+    backdrop-filter: blur(4px);
+}
+
+/* Modal content */
+.modal-content {
+    background: var(--bg-panel);
+    border-radius: 12px;
+    padding: 24px;
+    max-width: 500px;
+    width: 90%;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    color: var(--text);
+}
+
+.modal-content h2 {
+    font-size: 1.8rem;
+    font-weight: 700;
+    margin-bottom: 16px;
+    color: var(--text);
+}
+
+.modal-content p {
+    margin-bottom: 16px;
+    line-height: 1.5;
+}
+
+/* Modal input */
+.modal-input {
+    width: 100%;
+    padding: 12px;
+    font-size: 1rem;
+    border: 2px solid rgba(255, 255, 255, 0.1);
+    border-radius: var(--btn-radius);
+    background: var(--bg-page);
+    color: var(--text);
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    margin-bottom: 16px;
+    box-sizing: border-box;
+}
+
+.modal-input:focus {
+    outline: none;
+    border-color: var(--accent-blue);
+}
+
+/* Modal buttons */
+.modal-button {
+    padding: 12px 24px;
+    font-size: 1rem;
+    font-weight: 700;
+    border: none;
+    border-radius: var(--btn-radius);
+    cursor: pointer;
+    margin-right: 8px;
+    margin-top: 8px;
+    background: #7289da;
+    color: var(--text);
+    transition: background 0.2s;
+}
+
+.modal-button:hover {
+    background: #5b6eae;
+}
+
+.modal-button-primary {
+    background: var(--accent-blue);
+}
+
+.modal-button-primary:hover {
+    background: #2563eb;
+}
+
+.modal-button-danger {
+    background: #ff4d4f;
+}
+
+.modal-button-danger:hover {
+    background: #d43f41;
+}
+
 /* Reset / layout */
 html,
 body {

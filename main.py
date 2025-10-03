@@ -249,7 +249,7 @@ def index() -> FileResponse:
 
 
 @app.get("/api/suggestion")
-def suggestion() -> Dict[str, str]:
+def suggestion(request: Request) -> Dict[str, str]:
     """Return a small randomized suggestion string suitable for the UI placeholder.
 
     This endpoint is intentionally simple and stateless: it doesn't touch
@@ -274,7 +274,8 @@ def suggestion() -> Dict[str, str]:
     if prompt is None:
         return {"suggestion": random.choice(candidates)}
     try:
-        resp = query_openai(prompt, SUGGESTIONS)
+        api_key = request.headers.get("X-OpenAI-API-Key")
+        resp = query_openai(prompt, SUGGESTIONS, api_key)
         if resp:
             # sanitize to a single line and trim
             suggestion_text = " ".join(resp.splitlines()).strip()
@@ -337,12 +338,13 @@ def get_state(session_id: str) -> Dict[str, Any]:
 
 
 @app.post("/api/ask/{session_id}")
-async def ask_ai(session_id: str, req: AskRequest) -> Dict[str, Any]:
+async def ask_ai(session_id: str, req: AskRequest, request: Request) -> Dict[str, Any]:
     """Send a question to the selected AI and return the answer."""
     game: Optional[Game] = sessions.get(session_id)
     if not game:
         return {"error": SESSION_NOT_FOUND}
-    result = game.next_turn(req.agent_name, req.question)
+    api_key = request.headers.get("X-OpenAI-API-Key")
+    result = game.next_turn(req.agent_name, req.question, api_key)
     try:
         save_sessions_to_disk()
     except Exception:

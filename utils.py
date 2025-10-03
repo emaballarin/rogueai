@@ -24,7 +24,7 @@ def get_ai_config() -> Dict[str, Dict[str, Any]]:
     return load_ai_config()
 
 
-def query_openai(prompt: str, role: int) -> str:
+def query_openai(prompt: str, role: int, api_key: Optional[str] = None) -> str:
     """Query the OpenAI API and return the response as a string."""
     config: Dict[str, Dict[str, Any]] = get_ai_config()
     if role == DECEITFUL:
@@ -33,7 +33,9 @@ def query_openai(prompt: str, role: int) -> str:
         ai_params = config["suggestions"]
     else:
         ai_params = config["truthful"]
-    response = openai.chat.completions.create(
+
+    client = openai.OpenAI(api_key=api_key) if api_key else openai
+    response = client.chat.completions.create(
         model=ai_params["model"],
         messages=[{"role": "system", "content": prompt}],
         max_tokens=ai_params["max_tokens"],
@@ -54,13 +56,14 @@ def get_audio_config() -> Dict[str, Dict[str, Any]]:
     return load_audio_config()
 
 
-def speak_openai(prompt: str, selected_ai: str) -> bytes:
+def speak_openai(prompt: str, selected_ai: str, api_key: Optional[str] = None) -> bytes:
     """Convert input text to speech using OpenAI's TTS API and return audio data."""
     config: Dict[str, Dict[str, Any]] = get_audio_config()
 
     ai_params = config[selected_ai]
 
-    with openai.audio.speech.with_streaming_response.create(
+    client = openai.OpenAI(api_key=api_key) if api_key else openai
+    with client.audio.speech.with_streaming_response.create(
         model=ai_params["model"],
         voice=ai_params["speaker"],
         input=prompt,
