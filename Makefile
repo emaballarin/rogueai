@@ -63,8 +63,5 @@ cleanup:
 virtualenv:
 	@cd ./scripts/ && ./prepare_virtualenv.sh
 
-uv-sync:  ## Sync dependencies using uv
-	@uv sync
-
-uv-install:  ## Install dependencies using uv pip
+uv-install:
 	@uv pip install -r requirements.txt

@@ -5,6 +5,7 @@ set -e
 if [ -d ../../.rogueai_virtualenv ]; then
     echo "Found ../../.rogueai_virtualenv, creating symlink ../.virtualenv"
     ln -sfn ../.rogueai_virtualenv ../.virtualenv
+    ln -sfn ../.rogueai_virtualenv ../.venv
 else
     echo "No shared virtualenv found, creating new one with uv in ../.virtualenv"
     uv venv ../.virtualenv
