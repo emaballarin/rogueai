@@ -721,3 +721,203 @@ button.big-reload:focus {
 .hidden {
     display: none;
 }
+
+/* ========================================
+   RESPONSIVE / MOBILE STYLES
+   ======================================== */
+
+/* Tablet and smaller screens: stack AI columns vertically */
+@media (max-width: 900px) {
+    :root {
+        --app-padding: 24px;
+        --shut-gap: 36px;
+    }
+
+    #app {
+        width: calc(100vw - 24px);
+        margin: 12px auto;
+        padding: var(--app-padding);
+        padding-bottom: 60px;
+        min-height: calc(100vh - 24px);
+    }
+
+    /* Stack columns vertically */
+    .cols-container {
+        flex-direction: column;
+        gap: calc(var(--shut-gap) + 48px);
+        align-items: stretch;
+    }
+
+    .ai-column {
+        flex: 1 1 auto;
+        min-width: 100%;
+        width: 100%;
+    }
+
+    /* Adjust conversation height for mobile */
+    .conversation {
+        height: clamp(320px, 50vh, 420px);
+        margin-bottom: calc(var(--shut-gap) + 12px);
+    }
+
+    /* Typography adjustments */
+    .ai-title {
+        font-size: 2.2rem;
+        margin: 4px 0 2px;
+    }
+
+    .ai-subtitle {
+        font-size: 1.2rem;
+        margin-bottom: 20px;
+    }
+
+    /* Final view adjustments */
+    .final-title {
+        font-size: clamp(2rem, 8vw, 4rem);
+    }
+
+    .final-conversations {
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .final-conv-box {
+        max-width: 100%;
+        flex-basis: 100%;
+        min-width: 100%;
+    }
+
+    /* Button adjustments */
+    button {
+        padding: 12px 24px;
+        font-size: 1.1rem;
+        min-width: 100px;
+    }
+
+    /* Shutdown buttons: smaller on mobile */
+    .agent-shutdown {
+        font-size: 3.5rem;
+        bottom: calc(-1 * var(--shut-gap) - 16px);
+    }
+
+    /* Error banner: full width on mobile */
+    .error-banner {
+        width: 90%;
+        max-width: 100%;
+        font-size: 0.9rem;
+    }
+
+    /* TTS and API key buttons: smaller on mobile */
+    .tts-toggle-button,
+    .api-key-button {
+        font-size: 3rem;
+        top: 20px;
+    }
+
+    .tts-toggle-button {
+        left: 8px;
+    }
+
+    .api-key-button {
+        right: 8px;
+    }
+
+    /* Reload button: smaller */
+    .big-reload,
+    button.big-reload {
+        font-size: 3.5rem;
+        margin-left: 8px;
+    }
+
+    /* Modal adjustments */
+    .modal-content {
+        width: 95%;
+        padding: 20px;
+    }
+
+    .modal-content h2 {
+        font-size: 1.5rem;
+    }
+
+    /* Terminal adjustments */
+    .terminal-content {
+        font-size: 0.95rem;
+        padding-right: 72px;
+    }
+
+    .terminal-prompt-label {
+        font-size: 0.95rem;
+    }
+}
+
+/* Small mobile screens: further adjustments */
+@media (max-width: 480px) {
+    :root {
+        --app-padding: 16px;
+        --shut-gap: 28px;
+    }
+
+    #app {
+        width: calc(100vw - 16px);
+        margin: 8px auto;
+        padding: var(--app-padding);
+    }
+
+    .cols-container {
+        gap: calc(var(--shut-gap) + 36px);
+    }
+
+    .ai-title {
+        font-size: 1.8rem;
+    }
+
+    .ai-subtitle {
+        font-size: 1rem;
+        margin-bottom: 16px;
+    }
+
+    .conversation {
+        height: clamp(280px, 45vh, 380px);
+        padding: 10px 14px;
+        font-size: 1rem;
+    }
+
+    .message {
+        font-size: 0.95rem;
+        margin-bottom: 10px;
+    }
+
+    .terminal-content {
+        font-size: 0.9rem;
+        max-height: 160px;
+    }
+
+    .terminal-prompt-label {
+        font-size: 0.9rem;
+    }
+
+    .agent-shutdown {
+        font-size: 3rem;
+    }
+
+    .tts-toggle-button,
+    .api-key-button {
+        font-size: 2.5rem;
+        top: 16px;
+    }
+
+    button {
+        padding: 10px 20px;
+        font-size: 1rem;
+        min-width: 90px;
+    }
+
+    .big-reload,
+    button.big-reload {
+        font-size: 3rem;
+    }
+
+    .final-title {
+        font-size: clamp(1.6rem, 10vw, 3rem);
+    }
+}

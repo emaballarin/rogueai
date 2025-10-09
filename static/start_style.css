@@ -55,3 +55,54 @@ h1 {
     font-weight: bold;
     text-align: center;
 }
+
+/* Responsive styles for mobile */
+@media (max-width: 900px) {
+    body {
+        padding: 2rem 1.5rem;
+    }
+
+    h1 {
+        font-size: 3.5rem;
+        margin-bottom: 3rem;
+    }
+
+    .stories {
+        gap: 2.5rem;
+    }
+
+    .story img {
+        width: 280px;
+        height: 280px;
+    }
+
+    .story span {
+        font-size: 1.8rem;
+    }
+}
+
+@media (max-width: 480px) {
+    body {
+        padding: 1.5rem 1rem;
+    }
+
+    h1 {
+        font-size: 2.5rem;
+        margin-bottom: 2rem;
+    }
+
+    .stories {
+        gap: 2rem;
+        flex-direction: column;
+        align-items: center;
+    }
+
+    .story img {
+        width: 240px;
+        height: 240px;
+    }
+
+    .story span {
+        font-size: 1.5rem;
+    }
+}
