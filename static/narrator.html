@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>RogueAI - Story Generator</title>
+        <link rel="stylesheet" href="/static/narrator_style.css" />
+        <link rel="icon" type="image/x-icon" href="/static/favicon.ico" />
+    </head>
+
+    <body>
+        <div id="app">
+            <div class="narrator-container">
+                <!-- Header -->
+                <div class="header">
+                    <h1>🎭 AI Narrator - Story Generator</h1>
+                    <div class="message-counter"><span id="message-count">0/5</span> messaggi utilizzati</div>
+                </div>
+
+                <!-- Chat Area -->
+                <div class="chat-container">
+                    <div id="chat-messages" class="chat-messages">
+                        <!-- Messages will be dynamically added here -->
+                    </div>
+                </div>
+
+                <!-- Input Area -->
+                <div class="input-container">
+                    <textarea
+                        id="user-input"
+                        placeholder="Descrivi la storia che vuoi creare..."
+                        rows="3"
+                        maxlength="1000"
+                    ></textarea>
+                    <button id="send-btn" class="btn-send">Invia</button>
+                </div>
+
+                <!-- Action Buttons -->
+                <div class="action-buttons">
+                    <button id="back-btn" class="btn-secondary">🔙 Torna Indietro / Reset</button>
+                    <button id="generate-btn" class="btn-primary" disabled>✨ Genera Scenario</button>
+                </div>
+
+                <!-- Generation Result Area (hidden initially) -->
+                <div id="generation-result" class="generation-result" style="display: none">
+                    <h2>📜 Scenario Generato</h2>
+                    <div class="generated-prompts-section">
+                        <h3>Fatti Conosciuti</h3>
+                        <div id="generated-prompts-text" class="prompt-text"></div>
+                        <button id="read-base-prompt-btn" class="btn-audio">🔊 Leggi Scenario</button>
+                    </div>
+                    <button id="start-game-btn" class="btn-primary btn-large">🎮 Inizia il Gioco</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- TTS Toggle Button -->
+        <button id="tts-toggle" class="tts-toggle-button" title="Toggle TTS">🔊</button>
+
+        <!-- API Key Button -->
+        <button id="api-key-toggle" class="api-key-button" title="Gestisci chiave API OpenAI">🔓</button>
+
+        <!-- API Key Modal -->
+        <div id="api-key-modal" class="modal-overlay" style="display: none">
+            <div class="modal-content">
+                <h2>Gestisci chiave API OpenAI</h2>
+                <div id="modal-body">
+                    <!-- Content will be dynamically populated -->
+                </div>
+            </div>
+        </div>
+
+        <script src="/static/narrator.js"></script>
+    </body>
+</html>

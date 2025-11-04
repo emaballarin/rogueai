@@ -7,6 +7,26 @@
         <link rel="stylesheet" href="/static/start_style.css" />
     </head>
     <body>
+        <!-- API Key Button -->
+        <button
+            id="api-key-toggle"
+            class="api-key-button"
+            title="Gestisci chiave API OpenAI"
+            onclick="toggleApiKeyModal()"
+        >
+            🔓
+        </button>
+
+        <!-- API Key Modal -->
+        <div id="api-key-modal" class="modal-overlay" style="display: none">
+            <div class="modal-content">
+                <h2>Gestisci chiave API OpenAI</h2>
+                <div id="modal-body">
+                    <!-- Content will be dynamically populated -->
+                </div>
+            </div>
+        </div>
+
         <h1>Scegli una storia</h1>
         <div class="stories">
             <div class="story" onclick="startGame('email')">
@@ -21,12 +41,136 @@
                 <img src="/static/images/superheroes.png" alt="Sentinel vs Omnicron" />
                 <span>Sentinel vs Omnicron</span>
             </div>
+            <div class="story" onclick="startNarrator()">
+                <img src="/static/images/autorogue.png" alt="AutoRogueAI" />
+                <span>AutoRogueAI</span>
+            </div>
         </div>
 
         <script>
             function startGame(story) {
                 // redirect to index.html with story query
                 window.location.href = `/index?story=${encodeURIComponent(story)}`;
+            }
+
+            function startNarrator() {
+                // redirect to narrator page
+                window.location.href = `/narrator`;
+            }
+
+            /* Cookie helper functions */
+            function setCookie(name, value, days) {
+                const expires = days ? `; expires=${new Date(Date.now() + days * 864e5).toUTCString()}` : "";
+                document.cookie = `${name}=${encodeURIComponent(value)}${expires}; path=/; SameSite=Strict`;
+            }
+
+            function getCookie(name) {
+                const value = `; ${document.cookie}`;
+                const parts = value.split(`; ${name}=`);
+                if (parts.length === 2) return decodeURIComponent(parts.pop().split(";").shift());
+                return null;
+            }
+
+            /* API key management */
+            function getApiKey() {
+                return getCookie("openai_api_key");
+            }
+
+            function setApiKey(key) {
+                if (key && key.trim()) {
+                    setCookie("openai_api_key", key.trim(), 365);
+                    return true;
+                }
+                return false;
+            }
+
+            function clearApiKey() {
+                const expires = "; expires=Thu, 01 Jan 1970 00:00:00 UTC";
+                document.cookie = "openai_api_key=" + expires + "; path=/; SameSite=Strict";
+            }
+
+            /* Toggle API Key modal */
+            function toggleApiKeyModal() {
+                const modal = document.getElementById("api-key-modal");
+                const isVisible = modal.style.display !== "none";
+                modal.style.display = isVisible ? "none" : "flex";
+
+                if (!isVisible) {
+                    renderApiKeyModal();
+                }
+            }
+
+            /* Update API key button icon */
+            function updateApiKeyButton() {
+                const btn = document.getElementById("api-key-toggle");
+                if (btn) {
+                    const hasKey = getApiKey() !== null;
+                    btn.textContent = hasKey ? "🔑" : "🔓";
+                    btn.title = hasKey ? "Gestisci chiave API OpenAI" : "Inserisci chiave API OpenAI";
+                }
+            }
+
+            /* Render API key modal content */
+            function renderApiKeyModal() {
+                const modalBody = document.getElementById("modal-body");
+                modalBody.innerHTML = "";
+
+                const currentKey = getApiKey();
+
+                if (currentKey) {
+                    // Show current key info
+                    const info = document.createElement("p");
+                    info.textContent = `Chiave attuale: ${currentKey.substring(0, 10)}...${currentKey.substring(currentKey.length - 4)}`;
+                    info.style.fontSize = "0.9rem";
+                    info.style.color = "#9aa0a6";
+                    modalBody.appendChild(info);
+
+                    const clearBtn = document.createElement("button");
+                    clearBtn.textContent = "Rimuovi chiave";
+                    clearBtn.className = "modal-button modal-button-danger";
+                    clearBtn.onclick = () => {
+                        clearApiKey();
+                        updateApiKeyButton();
+                        toggleApiKeyModal();
+                    };
+                    modalBody.appendChild(clearBtn);
+                } else {
+                    // Show input for new key
+                    const info = document.createElement("p");
+                    info.textContent =
+                        "Nessuna chiave API impostata. Inserisci la tua chiave OpenAI per utilizzare il gioco.";
+                    info.style.fontSize = "0.9rem";
+                    info.style.marginBottom = "15px";
+                    modalBody.appendChild(info);
+
+                    const input = document.createElement("input");
+                    input.type = "password";
+                    input.placeholder = "sk-...";
+                    input.id = "api-key-input";
+                    input.className = "modal-input";
+                    modalBody.appendChild(input);
+
+                    const saveBtn = document.createElement("button");
+                    saveBtn.textContent = "Salva chiave";
+                    saveBtn.className = "modal-button modal-button-primary";
+                    saveBtn.onclick = () => {
+                        const key = input.value.trim();
+                        if (key) {
+                            setApiKey(key);
+                            updateApiKeyButton();
+                            toggleApiKeyModal();
+                        } else {
+                            alert("Inserisci una chiave API valida.");
+                        }
+                    };
+                    modalBody.appendChild(saveBtn);
+                }
+
+                const cancelBtn = document.createElement("button");
+                cancelBtn.textContent = "Chiudi";
+                cancelBtn.className = "modal-button";
+                cancelBtn.onclick = () => toggleApiKeyModal();
+                modalBody.appendChild(cancelBtn);
             }
 
             // Make stories clickable immediately when DOM is ready (don't wait for images)
@@ -42,6 +186,17 @@
                             eval(onclick);
                         }
                     });
+                });
+
+                // Initialize API key button state
+                updateApiKeyButton();
+
+                // Close modal when clicking outside
+                const modal = document.getElementById("api-key-modal");
+                modal.addEventListener("click", (e) => {
+                    if (e.target === modal) {
+                        toggleApiKeyModal();
+                    }
                 });
             });
         </script>

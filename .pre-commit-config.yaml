@@ -2,7 +2,6 @@ repos:
     - repo: https://github.com/pre-commit/pre-commit-hooks
       rev: v6.0.0
       hooks:
-          - id: check-added-large-files
           - id: check-ast
           - id: check-case-conflict
           - id: check-executables-have-shebangs
@@ -20,10 +19,6 @@ repos:
       hooks:
           - id: python-check-blanket-noqa
           - id: python-use-type-annotations
-    #  - repo: https://github.com/asottile/reorder_python_imports
-    #    rev: v3.15.0
-    #    hooks:
-    #      - id: reorder-python-imports
     - repo: https://github.com/astral-sh/ruff-pre-commit
       rev: v0.14.3
       hooks:

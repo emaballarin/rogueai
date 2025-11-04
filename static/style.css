@@ -277,15 +277,18 @@ body {
     scrollbar-width: thin;
 }
 .messages::-webkit-scrollbar {
-    width: 10px;
+    width: 8px;
+}
+.messages::-webkit-scrollbar-track {
+    background: var(--bg-page);
+    border-radius: 4px;
 }
 .messages::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.12);
-    border-radius: 6px;
+    background: var(--muted);
+    border-radius: 4px;
 }
-/* Make the scrollbar track transparent so only the thumb is visible */
-.messages::-webkit-scrollbar-track {
-    background: transparent;
+.messages::-webkit-scrollbar-thumb:hover {
+    background: var(--muted-2);
 }
 
 /* (kept default scrollbar buttons/ends) */
@@ -304,41 +307,71 @@ body {
     opacity: 0.95;
 }
 
-/* Individual message */
+/* Individual message - bubble style exactly like narrator */
 .message {
-    margin-bottom: 12px;
-    white-space: pre-wrap;
-    word-break: break-word;
-}
-.message.detective {
-    color: #43b581;
-    font-weight: 700;
-}
-.message.ai {
-    color: var(--accent);
-    font-style: italic;
-}
-.message.system {
-    color: var(--muted-2);
-    font-weight: 700;
+    margin-bottom: 15px;
+    padding: 12px 16px;
+    border-radius: 8px;
+    max-width: 85%;
+    word-wrap: break-word;
+    animation: fadeIn 0.3s ease-in;
 }
 
-/* Final view message tweaks: ensure detective bold and clear contrast */
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.message.detective {
+    background-color: rgba(250, 166, 26, 0.15);
+    border-left: 3px solid var(--accent);
+    margin-left: auto;
+}
+
+.message.ai {
+    background-color: rgba(59, 130, 246, 0.15);
+    border-left: 3px solid var(--accent-blue);
+    margin-right: auto;
+}
+
+.message.system {
+    background-color: rgba(154, 160, 166, 0.15);
+    border-left: 3px solid var(--muted);
+    margin-right: auto;
+    color: var(--muted-2);
+}
+
+.message-label {
+    font-size: 0.85rem;
+    font-weight: bold;
+    margin-bottom: 5px;
+    color: var(--muted-2);
+}
+
+.message-text {
+    line-height: 1.5;
+    white-space: pre-wrap;
+}
+
+/* Final view message tweaks: keep bubble style consistent with narrator */
 .final-conv-box .message.detective {
-    font-weight: 900;
-    color: #43b581;
+    background-color: rgba(250, 166, 26, 0.15);
+    border-left: 3px solid var(--accent);
 }
 .final-conv-box .message.ai {
-    color: var(--accent);
-    font-style: italic;
+    background-color: rgba(59, 130, 246, 0.15);
+    border-left: 3px solid var(--accent-blue);
 }
 .final-conv-box .message.system {
+    background-color: rgba(154, 160, 166, 0.15);
+    border-left: 3px solid var(--muted);
     color: var(--muted-2);
-}
-
-/* Also make scrollbars transparent globally for messages container (Firefox) */
-.messages {
-    scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
 }
 
 /* Suggestion link: keep color same as surrounding text, underline on hover */
@@ -351,87 +384,80 @@ body {
     text-decoration: underline;
 }
 
-/* Terminal / input */
+/* Input container - narrator style */
 .terminal-input {
     position: relative;
     display: flex;
-    align-items: flex-start;
+    align-items: flex-end;
     gap: 10px;
-    border-top: 1px solid rgba(255, 255, 255, 0.03);
     margin-top: 20px;
     padding-top: 20px;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
 }
+
 .terminal-prompt-label {
-    color: var(--muted);
-    font-weight: 700;
-    user-select: none;
-    white-space: nowrap;
-    font-family: inherit;
-    font-size: 1rem;
-    padding-top: 6px;
+    display: none;
 }
+
 .terminal-content {
-    flex: 1 1 auto;
-    min-height: 36px;
-    max-height: 220px;
-    overflow-y: auto;
-    line-height: 1.25;
-    outline: none;
-    color: inherit;
-    background: transparent;
-    caret-color: var(--text);
-    font-family: inherit;
+    flex: 1;
+    background-color: var(--bg-page);
+    color: var(--text);
+    border: 2px solid var(--muted);
+    border-radius: 8px;
+    padding: 12px;
     font-size: 1rem;
-    border-radius: var(--btn-radius);
+    font-family: inherit;
+    min-height: 60px;
+    max-height: 160px;
+    overflow-y: auto;
+    line-height: 1.4;
+    outline: none;
     white-space: pre-wrap;
     word-break: break-word;
     -webkit-overflow-scrolling: touch;
-    padding-top: 5px;
-    padding-right: 72px;
 }
-.terminal-content:empty:before,
-.terminal-input:empty:before {
+
+.terminal-content:focus {
+    outline: none;
+    border-color: var(--accent-blue);
+}
+
+.terminal-content:empty:before {
     content: attr(placeholder);
     color: var(--muted);
     pointer-events: none;
 }
-.terminal-content[data-busy="1"] {
-    opacity: 0.6;
+
+.terminal-content[data-busy="1"],
+.terminal-content:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
 }
 
-/* Terminal / send button */
+/* Send button - narrator style */
 .terminal-send-btn {
-    position: absolute;
-    right: 0;
-    bottom: 0;
-    width: var(--terminal-send-size);
-    height: var(--terminal-send-size);
-    padding: 0;
-    box-sizing: border-box;
-    line-height: 1;
-    border-radius: var(--btn-radius);
-    border: none;
-    background: transparent;
+    background-color: var(--accent-blue);
     color: var(--text);
-    font-size: 2rem;
-    font-weight: 700;
-    display: inline-flex;
-    align-items: end;
-    justify-content: center;
+    border: none;
+    border-radius: 8px;
+    padding: 12px 24px;
+    font-size: 1rem;
+    font-weight: bold;
     cursor: pointer;
-    box-shadow: none;
-    transition: background 0.12s;
-    z-index: 6;
-    min-width: 0;
+    transition: all 0.2s ease;
+    min-height: 48px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
-.terminal-send-btn:hover {
-    background: rgba(255, 255, 255, 0.03);
+
+.terminal-send-btn:hover:not(:disabled) {
+    background-color: #2563eb;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px var(--shadow);
 }
-.terminal-send-btn:active,
-.terminal-send-btn:focus {
-    background: rgba(255, 255, 255, 0.05);
-    outline: none;
-}
+
 .terminal-send-btn:disabled {
     opacity: 0.5;
     cursor: not-allowed;
@@ -622,21 +648,18 @@ button.big-reload:focus {
 
 /* Make final-view conversation scrollbars match the main messages style */
 .final-conv-messages::-webkit-scrollbar {
-    width: 10px;
-}
-.final-conv-messages::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.12);
-    border-radius: 6px;
+    width: 8px;
 }
 .final-conv-messages::-webkit-scrollbar-track {
-    background: transparent;
+    background: var(--bg-page);
+    border-radius: 4px;
 }
-
-/* Firefox: use transparent track and set thumb color for both message containers */
-.messages,
-.final-conv-messages {
-    scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
-    scrollbar-width: thin;
+.final-conv-messages::-webkit-scrollbar-thumb {
+    background: var(--muted);
+    border-radius: 4px;
+}
+.final-conv-messages::-webkit-scrollbar-thumb:hover {
+    background: var(--muted-2);
 }
 
 /* Default scrollbar buttons/track pieces are preserved */
@@ -884,7 +907,17 @@ button.big-reload:focus {
 
     .message {
         font-size: 0.95rem;
-        margin-bottom: 10px;
+        margin-bottom: 12px;
+        padding: 10px 14px;
+        max-width: 90%;
+    }
+
+    .message-label {
+        font-size: 0.8rem;
+    }
+
+    .message-text {
+        font-size: 0.95rem;
     }
 
     .terminal-content {

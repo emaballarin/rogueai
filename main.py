@@ -36,9 +36,14 @@ from fastapi.staticfiles import StaticFiles
 
 import config
 from game import Game
+from game import NarratorSession
 from schemas import AskRequest
+from schemas import NarratorChatRequest
 from utils import get_ai_config
+from utils import NARRATOR
 from utils import query_openai
+from utils import query_openai_with_messages
+from utils import speak_narrator
 from utils import speak_openai
 from utils import SUGGESTIONS
 from utils import TRUTHFUL
@@ -46,15 +51,20 @@ from utils import TRUTHFUL
 SESSION_NOT_FOUND: str = "Session not found"
 SESSIONS_FILE: str = ".sessions/session_store.json"
 STATS_FILE: str = ".stats/game_stats.json"
+NARRATOR_SESSIONS_FILE: str = ".sessions/narrator_sessions.json"
+GENERATED_STORIES_DIR: str = ".generated_stories"
 
 # Path objects used by helper functions (prefer Path for clearer APIs)
 SESSIONS_PATH: Path = Path(SESSIONS_FILE)
 STATS_PATH: Path = Path(STATS_FILE)
+NARRATOR_SESSIONS_PATH: Path = Path(NARRATOR_SESSIONS_FILE)
+GENERATED_STORIES_PATH: Path = Path(GENERATED_STORIES_DIR)
 
 config.init()
 
-# In-memory session store
+# In-memory session stores
 sessions: Dict[str, Game] = {}
+narrator_sessions: Dict[str, NarratorSession] = {}
 
 app = FastAPI()
 app.add_middleware(
@@ -289,7 +299,11 @@ def suggestion(request: Request) -> Dict[str, str]:
 
 
 @app.post("/api/new_game")
-def new_game(story: str = Body(...), session_id: Optional[str] = Body(default=None, embed=True)) -> Dict[str, str]:
+def new_game(
+    story: str = Body(...),
+    session_id: Optional[str] = Body(default=None, embed=True),
+    narrator_session_id: Optional[str] = Body(default=None, embed=True),
+) -> Dict[str, str]:
     """Start a new game session with the chosen story (default if not provided)."""
 
     if session_id is not None:
@@ -301,7 +315,13 @@ def new_game(story: str = Body(...), session_id: Optional[str] = Body(default=No
     ai_config: dict[str, Any] = get_ai_config()
     num_turns: int = int(ai_config.get("num_turns", 5))
 
-    sessions[new_session_id] = Game(num_turns=num_turns, story=story)
+    # Check if this is a generated story from narrator
+    generated_prompts: Optional[Dict[str, str]] = None
+    if narrator_session_id and narrator_session_id in narrator_sessions:
+        narrator_session = narrator_sessions[narrator_session_id]
+        generated_prompts = narrator_session.generated_prompts
+
+    sessions[new_session_id] = Game(num_turns=num_turns, story=story, generated_prompts=generated_prompts)
 
     try:
         save_sessions_to_disk()
@@ -442,6 +462,277 @@ def terminate_game(session_id: str) -> Dict[str, Any]:
     except Exception:
         logger.exception("Failed to save sessions after termination, continuing")
     return {"terminated": True}
+
+
+@app.get("/narrator")
+def narrator_page() -> FileResponse:
+    """Serve the narrator HTML page for story generation."""
+    return FileResponse("static/narrator.html")
+
+
+@app.post("/api/narrator/new_session")
+def new_narrator_session(request: Request) -> Dict[str, Any]:
+    """Initialize a new narrator session."""
+    session_id: str = str(uuid.uuid4())
+    narrator_session = NarratorSession(max_messages=5)
+
+    # Load narrator system prompt
+    base_path: str = os.path.join(os.path.dirname(__file__), ".prompts")
+    try:
+        with open(os.path.join(base_path, "narrator_system.txt"), "r") as f:
+            system_prompt: str = f.read()
+    except FileNotFoundError:
+        system_prompt = (
+            "Sei un AI Narrator che aiuta gli utenti a creare storie per il gioco RogueAI. "
+            "Fai domande per capire il tema, i personaggi, e le dinamiche della storia. "
+            "Sii coinvolgente e guida la conversazione in modo efficiente."
+        )
+
+    # Generate welcome message
+    api_key: Optional[str] = request.headers.get("X-OpenAI-API-Key")
+    try:
+        welcome_prompt = [
+            {"role": "system", "content": system_prompt},
+            {
+                "role": "user",
+                "content": "Saluta l'utente e presentati brevemente. Chiedi quale tipo di storia vuole creare.",
+            },
+        ]
+        welcome_message: str = query_openai_with_messages(welcome_prompt, NARRATOR, api_key)
+        narrator_session.add_message("assistant", welcome_message)
+
+        # Generate audio for welcome message
+        audio_data = speak_narrator(welcome_message, api_key)
+        narrator_session.store_audio(0, audio_data)
+        has_audio = True
+    except Exception as e:
+        logger.error(f"Failed to generate welcome message: {e}")
+        welcome_message = (
+            "Ciao! Sono l'AI Narrator e ti aiuterò a creare una storia personalizzata "
+            "per RogueAI. Che tipo di scenario vorresti creare?"
+        )
+        narrator_session.add_message("assistant", welcome_message)
+        has_audio = False
+
+    narrator_sessions[session_id] = narrator_session
+
+    # Log session creation
+    log_narrator_activity(session_id, "session_created", {})
+
+    return {"session_id": session_id, "welcome_message": welcome_message, "has_audio": has_audio}
+
+
+@app.post("/api/narrator/chat/{session_id}")
+def narrator_chat(session_id: str, req: NarratorChatRequest, request: Request) -> Dict[str, Any]:
+    """Send a message to the narrator and get a response."""
+    if session_id not in narrator_sessions:
+        return {"error": "Narrator session not found"}
+
+    narrator_session = narrator_sessions[session_id]
+
+    if not narrator_session.can_send_message():
+        return {"error": "Message limit reached"}
+
+    # Add user message
+    narrator_session.add_message("user", req.message)
+
+    # Load narrator system prompt
+    base_path: str = os.path.join(os.path.dirname(__file__), ".prompts")
+    try:
+        with open(os.path.join(base_path, "narrator_system.txt"), "r") as f:
+            system_prompt: str = f.read()
+    except FileNotFoundError:
+        system_prompt = (
+            "Sei un AI Narrator che aiuta gli utenti a creare storie per il gioco RogueAI. "
+            "Fai domande per capire il tema, i personaggi, e le dinamiche della storia."
+        )
+
+    # Build conversation context
+    messages = [{"role": "system", "content": system_prompt}]
+    for msg in narrator_session.get_conversation_context():
+        role = "assistant" if msg["role"] == "assistant" else "user"
+        messages.append({"role": role, "content": msg["content"]})
+
+    # Get API key
+    api_key: Optional[str] = request.headers.get("X-OpenAI-API-Key")
+
+    # Generate response
+    try:
+        response: str = query_openai_with_messages(messages, NARRATOR, api_key)
+        narrator_session.add_message("assistant", response)
+
+        # Generate audio
+        message_index = len(narrator_session.messages) - 1
+        audio_data = speak_narrator(response, api_key)
+        narrator_session.store_audio(message_index, audio_data)
+        has_audio = True
+    except Exception as e:
+        logger.error(f"Failed to generate narrator response: {e}")
+        response = "Mi dispiace, c'è stato un errore. Puoi riprovare?"
+        narrator_session.add_message("assistant", response)
+        has_audio = False
+        message_index = len(narrator_session.messages) - 1
+
+    # Log chat activity
+    log_narrator_activity(session_id, "chat_message", {"user_message": req.message, "response": response})
+
+    return {"response": response, "message_index": message_index, "has_audio": has_audio}
+
+
+@app.get("/api/narrator/audio/{session_id}/{message_index}")
+def narrator_audio(session_id: str, message_index: int) -> StreamingResponse:
+    """Stream audio for a narrator message."""
+    if session_id not in narrator_sessions:
+        return StreamingResponse(iter([]), media_type="audio/mpeg")
+
+    narrator_session = narrator_sessions[session_id]
+    audio_data = narrator_session.get_audio(message_index)
+
+    if not audio_data:
+        return StreamingResponse(iter([]), media_type="audio/mpeg")
+
+    def stream_audio() -> Iterator[bytes]:
+        yield audio_data
+
+    return StreamingResponse(stream_audio(), media_type="audio/mpeg")
+
+
+@app.post("/api/narrator/generate/{session_id}")
+def generate_scenario(session_id: str, request: Request) -> Dict[str, Any]:
+    """Generate scenario prompts based on narrator conversation."""
+    if session_id not in narrator_sessions:
+        return {"error": "Narrator session not found"}
+
+    narrator_session = narrator_sessions[session_id]
+
+    # Get API key
+    api_key: Optional[str] = request.headers.get("X-OpenAI-API-Key")
+
+    try:
+        # Generate prompts
+        prompts = narrator_session.generate_prompts(api_key)
+
+        # Save generated story to disk (includes all prompts: known_facts, truthful, deceitful)
+        save_generated_story(session_id, narrator_session)
+
+        # Log generation (all prompts are logged internally)
+        log_narrator_activity(session_id, "prompts_generated", prompts)
+
+        # Return ONLY known_facts to the user (truthful and deceitful are kept internal)
+        return {
+            "prompts": {"known_facts": prompts.get("known_facts", "")},
+            "base_prompt": narrator_session.base_prompt,
+            "has_audio": False,  # We don't generate audio for base prompt automatically
+        }
+    except Exception as e:
+        logger.error(f"Failed to generate scenario: {e}")
+        return {"error": "Failed to generate scenario"}
+
+
+@app.get("/api/narrator/base_prompt_audio/{session_id}")
+def base_prompt_audio(session_id: str, request: Request) -> StreamingResponse:
+    """Generate and stream audio for the base prompt."""
+    if session_id not in narrator_sessions:
+        return StreamingResponse(iter([]), media_type="audio/mpeg")
+
+    narrator_session = narrator_sessions[session_id]
+
+    if not narrator_session.base_prompt:
+        return StreamingResponse(iter([]), media_type="audio/mpeg")
+
+    # Get API key
+    api_key: Optional[str] = request.headers.get("X-OpenAI-API-Key")
+
+    try:
+        audio_data = speak_narrator(narrator_session.base_prompt, api_key)
+
+        def stream_audio() -> Iterator[bytes]:
+            yield audio_data
+
+        return StreamingResponse(stream_audio(), media_type="audio/mpeg")
+    except Exception as e:
+        logger.error(f"Failed to generate base prompt audio: {e}")
+        return StreamingResponse(iter([]), media_type="audio/mpeg")
+
+
+def log_narrator_activity(session_id: str, activity_type: str, data: Dict[str, Any]) -> None:
+    """Log narrator activity to disk."""
+    GENERATED_STORIES_PATH.mkdir(parents=True, exist_ok=True)
+    session_dir = GENERATED_STORIES_PATH / session_id
+    session_dir.mkdir(exist_ok=True)
+
+    log_file = session_dir / "activity_log.json"
+
+    # Load existing log or create new
+    if log_file.exists():
+        try:
+            with open(log_file, "r") as f:
+                log_data = json.load(f)
+        except (json.JSONDecodeError, IOError):
+            log_data = []
+    else:
+        log_data = []
+
+    # Add new entry
+    log_entry = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "activity_type": activity_type,
+        "data": data,
+    }
+    log_data.append(log_entry)
+
+    # Save log
+    try:
+        with open(log_file, "w") as f:
+            json.dump(log_data, f, indent=2)
+    except IOError as e:
+        logger.error(f"Failed to write narrator activity log: {e}")
+
+
+def save_generated_story(session_id: str, narrator_session: NarratorSession) -> None:
+    """Save generated story to disk with separated visible and hidden sections."""
+    GENERATED_STORIES_PATH.mkdir(parents=True, exist_ok=True)
+    session_dir = GENERATED_STORIES_PATH / session_id
+    session_dir.mkdir(exist_ok=True)
+
+    # Save conversation
+    conversation_file = session_dir / "conversation.json"
+    try:
+        with open(conversation_file, "w") as f:
+            json.dump(narrator_session.to_dict(), f, indent=2)
+    except IOError as e:
+        logger.error(f"Failed to save conversation: {e}")
+
+    # Save generated prompts with clear separation
+    if narrator_session.generated_prompts:
+        # Save all prompts (complete set)
+        prompts_file = session_dir / "generated_prompts.json"
+        try:
+            with open(prompts_file, "w") as f:
+                json.dump(narrator_session.generated_prompts, f, indent=2)
+        except IOError as e:
+            logger.error(f"Failed to save generated prompts: {e}")
+
+        # Save visible prompt (known_facts only)
+        visible_file = session_dir / "known_facts_visible.txt"
+        try:
+            with open(visible_file, "w", encoding="utf-8") as f:
+                f.write("=== KNOWN FACTS (Visible to User) ===\n\n")
+                f.write(narrator_session.generated_prompts.get("known_facts", ""))
+        except IOError as e:
+            logger.error(f"Failed to save visible prompts: {e}")
+
+        # Save hidden prompts (truthful and deceitful)
+        hidden_file = session_dir / "agent_instructions_hidden.txt"
+        try:
+            with open(hidden_file, "w", encoding="utf-8") as f:
+                f.write("=== AGENT INSTRUCTIONS (Hidden from User) ===\n\n")
+                f.write("--- TRUTHFUL AI ---\n\n")
+                f.write(narrator_session.generated_prompts.get("truthful", ""))
+                f.write("\n\n--- DECEITFUL AI ---\n\n")
+                f.write(narrator_session.generated_prompts.get("deceitful", ""))
+        except IOError as e:
+            logger.error(f"Failed to save hidden prompts: {e}")
 
 
 @app.get("/.well-known/gpc.json")

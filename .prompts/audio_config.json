@@ -8,5 +8,10 @@
         "model": "gpt-4o-mini-tts",
         "speaker": "fable",
         "sys_prompt": "Sei un sospettato sottoposto ad interrogatorio per un furto che un detective sospetta tu abbia commesso. Rispecchia il tono, l'umore e le pause del testo, che è anche la tua confessione. Parla in italiano e scandisci bene il testo."
+    },
+    "narrator": {
+        "model": "gpt-4o-mini-tts",
+        "speaker": "onyx",
+        "sys_prompt": "Sei un narratore che guida gli utenti nella creazione di storie per un gioco. Leggi il testo in modo chiaro, coinvolgente e professionale. Parla in italiano."
     }
 }

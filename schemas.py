@@ -14,3 +14,9 @@ class SelectAIRequest(BaseModel):
     """Request model for selecting which AI to address."""
 
     agent_name: str
+
+
+class NarratorChatRequest(BaseModel):
+    """Request model for sending a message to the narrator."""
+
+    message: str

@@ -30,14 +30,16 @@ class Agent:
     story: str
     latest_audio: bytes | None
     audio_version: int
+    generated_prompts: Dict[str, str] | None
 
-    def __init__(self: Self, name: str, role: int, story: str) -> None:
+    def __init__(self: Self, name: str, role: int, story: str, generated_prompts: Dict[str, str] | None = None) -> None:
         self.name = name
         self.role = role
         self.memory: List[str] = []
         self.story: str = story
         self.latest_audio: bytes | None = None
         self.audio_version: int = 0
+        self.generated_prompts: Dict[str, str] | None = generated_prompts
 
     def respond(self: Self, history: List[str], question: str, api_key: str | None = None) -> str:
         """Generate a response to the detective's question using OpenAI."""
@@ -61,16 +63,28 @@ class Agent:
 
     def _build_prompt(self: Self, history: List[str], question: str) -> str:
         base_path: str = os.path.join(os.path.dirname(__file__), ".prompts")
+
+        # Load base template
         with open(os.path.join(base_path, "base.txt"), "r") as f:
             base_template: str = f.read()
-        with open(os.path.join(base_path, f"known_facts_{self.story}.txt"), "r") as f:
-            known_facts: str = f.read()
-        if self.role == TRUTHFUL:
-            with open(os.path.join(base_path, f"truthful_{self.story}.txt"), "r") as f:
-                role_instructions: str = f.read()
+
+        # Use generated prompts if available, otherwise load from files
+        if self.generated_prompts:
+            known_facts: str = self.generated_prompts.get("known_facts", "")
+            if self.role == TRUTHFUL:
+                role_instructions: str = self.generated_prompts.get("truthful", "")
+            else:
+                role_instructions: str = self.generated_prompts.get("deceitful", "")
         else:
-            with open(os.path.join(base_path, f"deceitful_{self.story}.txt"), "r") as f:
-                role_instructions: str = f.read()
+            with open(os.path.join(base_path, f"known_facts_{self.story}.txt"), "r") as f:
+                known_facts = f.read()
+            if self.role == TRUTHFUL:
+                with open(os.path.join(base_path, f"truthful_{self.story}.txt"), "r") as f:
+                    role_instructions = f.read()
+            else:
+                with open(os.path.join(base_path, f"deceitful_{self.story}.txt"), "r") as f:
+                    role_instructions = f.read()
+
         prompt: str = base_template.replace("{name}", self.name)
         prompt = prompt.replace("[KNOWN_FACTS]", known_facts.strip())
         prompt = prompt.replace("[ROLE_INSTRUCTIONS]", role_instructions.strip())
@@ -85,11 +99,17 @@ class Agent:
             "memory": self.memory,
             "story": self.story,
             "audio_version": self.audio_version,
+            "generated_prompts": self.generated_prompts,
         }
 
     @staticmethod
     def from_dict(data: dict) -> "Agent":
-        agent = Agent(data["name"], data["role"], data["story"])
+        agent = Agent(
+            data["name"],
+            data["role"],
+            data["story"],
+            generated_prompts=data.get("generated_prompts"),
+        )
         agent.memory = data.get("memory", [])
         agent.audio_version = data.get("audio_version", 0)
         agent.latest_audio = None
@@ -109,13 +129,19 @@ class Game:
     selected_ai: str
     story: str
 
-    def __init__(self: Self, story: str, num_turns: int = 5) -> None:
+    def __init__(self: Self, story: str, num_turns: int = 5, generated_prompts: Dict[str, str] | None = None) -> None:
         self.num_turns = num_turns
         self.story = story
         if torch.rand(1).item() > 0.5:
-            self.agents = [Agent("IA-1", TRUTHFUL, self.story), Agent("IA-2", DECEITFUL, self.story)]
+            self.agents = [
+                Agent("IA-1", TRUTHFUL, self.story, generated_prompts),
+                Agent("IA-2", DECEITFUL, self.story, generated_prompts),
+            ]
         else:
-            self.agents = [Agent("IA-1", DECEITFUL, self.story), Agent("IA-2", TRUTHFUL, self.story)]
+            self.agents = [
+                Agent("IA-1", DECEITFUL, self.story, generated_prompts),
+                Agent("IA-2", TRUTHFUL, self.story, generated_prompts),
+            ]
         self.histories = {agent.name: [] for agent in self.agents}
         self.question_counts = {agent.name: 0 for agent in self.agents}
         self.finished = False
@@ -193,3 +219,127 @@ class Game:
 
     def is_over(self: Self) -> bool:
         return self.finished
+
+
+class NarratorSession:
+    """Manages the state and logic of a narrator conversation for story generation."""
+
+    messages: List[Dict[str, str]]
+    message_count: int
+    max_messages: int
+    generated_prompts: Dict[str, str] | None
+    base_prompt: str | None
+    audio_cache: Dict[int, bytes]
+
+    def __init__(self: Self, max_messages: int = 5) -> None:
+        self.messages: List[Dict[str, str]] = []
+        self.message_count: int = 0
+        self.max_messages: int = max_messages
+        self.generated_prompts: Dict[str, str] | None = None
+        self.base_prompt: str | None = None
+        self.audio_cache: Dict[int, bytes] = {}
+
+    def add_message(self: Self, role: str, content: str) -> None:
+        """Add a message to the conversation."""
+        self.messages.append({"role": role, "content": content})
+        if role == "user":
+            self.message_count += 1
+
+    def can_send_message(self: Self) -> bool:
+        """Check if user can send more messages."""
+        return self.message_count < self.max_messages
+
+    def get_conversation_context(self: Self) -> List[Dict[str, str]]:
+        """Get conversation context for OpenAI API."""
+        return self.messages
+
+    def generate_prompts(self: Self, api_key: str | None = None) -> Dict[str, str]:
+        """Generate story prompts based on conversation."""
+        from utils import query_openai_with_messages
+
+        # Build generation prompt
+        base_path: str = os.path.join(os.path.dirname(__file__), ".prompts")
+        with open(os.path.join(base_path, "narrator_generation.txt"), "r") as f:
+            generation_instructions: str = f.read()
+
+        # Create messages for prompt generation
+        conversation_summary = "\n\n".join([f"{msg['role'].upper()}: {msg['content']}" for msg in self.messages])
+
+        generation_prompt = [
+            {"role": "system", "content": generation_instructions},
+            {
+                "role": "user",
+                "content": f"Based on this conversation, generate the three required prompts:\n\n{conversation_summary}",
+            },
+        ]
+
+        try:
+            response: str = query_openai_with_messages(generation_prompt, api_key=api_key)
+            # Parse response to extract three prompts
+            prompts = self._parse_generated_prompts(response)
+            self.generated_prompts = prompts
+
+            # Load base prompt
+            with open(os.path.join(base_path, "base.txt"), "r") as f:
+                self.base_prompt = f.read()
+
+            return prompts
+        except Exception as e:
+            logger.error(f"Failed to generate prompts: {e}")
+            raise
+
+    def _parse_generated_prompts(self: Self, response: str) -> Dict[str, str]:
+        """Parse the three prompts from AI response."""
+        prompts = {"known_facts": "", "truthful": "", "deceitful": ""}
+
+        # Simple parsing logic - look for markers
+        lines = response.split("\n")
+        current_section = None
+
+        for line in lines:
+            line_upper = line.upper().strip()
+            if "KNOWN FACTS" in line_upper or "KNOWN_FACTS" in line_upper:
+                current_section = "known_facts"
+                continue
+            elif "TRUTHFUL" in line_upper and "DECEITFUL" not in line_upper:
+                current_section = "truthful"
+                continue
+            elif "DECEITFUL" in line_upper:
+                current_section = "deceitful"
+                continue
+
+            if current_section and line.strip() and not line.strip().startswith("==="):
+                prompts[current_section] += line + "\n"
+
+        # Clean up prompts
+        for key in prompts:
+            prompts[key] = prompts[key].strip()
+
+        return prompts
+
+    def store_audio(self: Self, message_index: int, audio_data: bytes) -> None:
+        """Store audio for a message."""
+        self.audio_cache[message_index] = audio_data
+
+    def get_audio(self: Self, message_index: int) -> bytes | None:
+        """Get audio for a message."""
+        return self.audio_cache.get(message_index)
+
+    def to_dict(self: Self) -> dict:
+        return {
+            "messages": self.messages,
+            "message_count": self.message_count,
+            "max_messages": self.max_messages,
+            "generated_prompts": self.generated_prompts,
+            "base_prompt": self.base_prompt,
+        }
+
+    @staticmethod
+    def from_dict(data: dict) -> "NarratorSession":
+        session = NarratorSession(max_messages=data.get("max_messages", 5))
+        session.messages = data.get("messages", [])
+        session.message_count = data.get("message_count", 0)
+        session.generated_prompts = data.get("generated_prompts")
+        session.base_prompt = data.get("base_prompt")
+        session.audio_cache = {}
+        return session

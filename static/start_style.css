@@ -1,21 +1,38 @@
-/* styles.css */
+/* Color palette matching narrator theme */
+:root {
+    --bg-page: #23272f;
+    --bg-panel: #181a20;
+    --text: #f5f6fa;
+    --muted: #9aa0a6;
+    --muted-2: #b9bbbe;
+    --accent: #faa61a;
+    --accent-blue: #3b82f6;
+    --shadow: rgba(0, 0, 0, 0.53);
+}
+
 body {
-    font-family: Arial, sans-serif;
-    background: #0d1117;
-    color: #f0f6fc;
+    font-family:
+        -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
+    background: var(--bg-page);
+    color: var(--text);
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: center; /* Shift content toward top */
+    justify-content: center;
     min-height: 100vh;
     margin: 0;
-    padding: 3rem 2rem 2rem 2rem; /* More top padding for spacing */
+    padding: 3rem 2rem 2rem 2rem;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
 }
 
 h1 {
-    font-size: 4.5rem; /* Increased font size */
-    margin-bottom: 4rem; /* More spacing below title */
+    font-size: 4.5rem;
+    margin-bottom: 4rem;
     text-align: center;
+    font-weight: 800;
+    color: var(--accent);
+    text-shadow: 0 2px 8px var(--shadow);
 }
 
 .stories {
@@ -36,18 +53,23 @@ h1 {
 }
 
 .story:hover {
-    transform: scale(1.1); /* Slightly larger hover effect */
-    box-shadow: 0 10px 20px rgba(0, 0, 0, 0.6); /* Stronger shadow */
+    transform: scale(1.05);
+    box-shadow: 0 8px 24px var(--shadow);
 }
 
 .story img {
-    width: 320px; /* Increased image size */
+    width: 320px;
     height: 320px;
-    border-radius: 16px;
+    border-radius: 12px;
     object-fit: cover;
     margin-bottom: 1.2rem;
-    border: 4px solid #30363d;
-    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.5); /* Slightly bigger shadow */
+    border: 3px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 0 4px 12px var(--shadow);
+    transition: all 0.25s ease;
+}
+
+.story:hover img {
+    border-color: var(--accent);
 }
 
 .story span {
@@ -105,4 +127,154 @@ h1 {
     .story span {
         font-size: 1.5rem;
     }
+
+    .api-key-button {
+        font-size: 2.5rem;
+    }
+}
+
+/* API Key Button (top-right) */
+.api-key-button {
+    position: fixed;
+    right: 12px;
+    top: 12px;
+    z-index: 1400;
+    background: transparent;
+    border: none;
+    color: var(--text);
+    font-size: 3rem;
+    line-height: 1;
+    padding: 0.15rem;
+    margin: 0;
+    cursor: pointer;
+    box-shadow: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.api-key-button:hover,
+.api-key-button:active,
+.api-key-button:focus {
+    background: transparent !important;
+    outline: none !important;
+    box-shadow: none !important;
+    transform: none !important;
+}
+
+/* Modal Overlay */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2000;
+    backdrop-filter: blur(4px);
+}
+
+.modal-content {
+    background-color: var(--bg-panel);
+    padding: 30px;
+    border-radius: 12px;
+    box-shadow: 0 8px 32px var(--shadow);
+    max-width: 500px;
+    width: 90%;
+    animation: modalFadeIn 0.3s ease-out;
+}
+
+@keyframes modalFadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(-20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.modal-content h2 {
+    color: var(--accent);
+    margin-top: 0;
+    margin-bottom: 20px;
+    font-size: 1.5rem;
+    font-weight: 700;
+}
+
+.modal-content p {
+    color: var(--text);
+    line-height: 1.6;
+    margin-bottom: 16px;
+}
+
+.modal-input {
+    width: 100%;
+    padding: 12px;
+    margin-bottom: 10px;
+    background-color: var(--bg-page);
+    color: var(--text);
+    border: 2px solid var(--muted);
+    border-radius: 8px;
+    font-size: 1rem;
+    font-family: inherit;
+    box-sizing: border-box;
+}
+
+.modal-input:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+.modal-button {
+    width: 100%;
+    padding: 12px 24px;
+    margin-top: 10px;
+    font-size: 1rem;
+    font-weight: bold;
+    border: 2px solid var(--muted);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    background-color: transparent;
+    color: var(--text);
+}
+
+.modal-button:hover {
+    border-color: var(--text);
+    background-color: rgba(255, 255, 255, 0.05);
+    transform: translateY(-2px);
+}
+
+.modal-button:active {
+    transform: translateY(0);
+}
+
+.modal-button-primary {
+    background-color: var(--accent);
+    color: #000;
+    border: none;
+}
+
+.modal-button-primary:hover {
+    background-color: #e89510;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px var(--shadow);
+}
+
+.modal-button-danger {
+    background-color: #dc2626;
+    color: var(--text);
+    border: none;
+}
+
+.modal-button-danger:hover {
+    background-color: #b91c1c;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px var(--shadow);
 }

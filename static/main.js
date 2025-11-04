@@ -166,18 +166,26 @@ async function newGame() {
         const params = new URLSearchParams(window.location.search);
 
         const story = params.get("story"); // || 'classic';
+        const narratorSessionId = params.get("narrator_session"); // For generated stories
 
         const headers = { "Content-Type": "application/json" };
         const apiKey = getApiKey();
         if (apiKey) headers["X-OpenAI-API-Key"] = apiKey;
 
+        const requestBody = {
+            session_id: storedSessionId,
+            story: story,
+        };
+
+        // Add narrator_session_id if this is a generated story
+        if (narratorSessionId) {
+            requestBody.narrator_session_id = narratorSessionId;
+        }
+
         const res = await fetch("/api/new_game", {
             method: "POST",
             headers: headers,
-            body: JSON.stringify({
-                session_id: storedSessionId,
-                story: story,
-            }),
+            body: JSON.stringify(requestBody),
         });
 
         if (!res.ok) throw new Error("Failed to start new game.");
@@ -187,6 +195,9 @@ async function newGame() {
         localStorage.setItem("sessionId", sessionId);
 
         console.log("Game started with story:", story, "sessionId:", sessionId);
+        if (narratorSessionId) {
+            console.log("Using generated prompts from narrator session:", narratorSessionId);
+        }
 
         await fetchState(); // your existing function to load the game state
     } catch (err) {
@@ -591,13 +602,43 @@ function renderWithLocalHistory(localHistories, animateForAi = null, preserveFoc
                 for (let i = 0; i < hist.length; i++) {
                     const text = hist[i];
                     let cls = "system";
-                    if (text.startsWith("Detective:")) cls = "detective";
-                    else if (text.startsWith(`${ai}:`) || text.startsWith("IA-")) cls = "ai";
+                    let labelText = "";
+                    let messageText = text;
+
+                    if (text.startsWith("Detective:")) {
+                        cls = "detective";
+                        labelText = "👤 Detective";
+                        messageText = text.substring("Detective:".length).trim();
+                    } else if (text.startsWith(`${ai}:`)) {
+                        cls = "ai";
+                        labelText = `🤖 ${ai}`;
+                        messageText = text.substring(`${ai}:`.length).trim();
+                    } else if (text.startsWith("IA-")) {
+                        cls = "ai";
+                        labelText = `🤖 ${ai}`;
+                        messageText = text.substring(text.indexOf(":") + 1).trim();
+                    }
+
                     const line = document.createElement("div");
                     line.className = `message ${cls}`;
-                    line.style.marginBottom = "6px";
+                    line.style.marginBottom = "10px";
                     line.style.whiteSpace = "pre-wrap";
-                    line.textContent = text;
+
+                    // Add label and text structure
+                    if (labelText) {
+                        const label = document.createElement("div");
+                        label.className = "message-label";
+                        label.textContent = labelText;
+                        line.appendChild(label);
+
+                        const msgText = document.createElement("div");
+                        msgText.className = "message-text";
+                        msgText.textContent = messageText;
+                        line.appendChild(msgText);
+                    } else {
+                        line.textContent = messageText;
+                    }
+
                     list.appendChild(line);
                 }
             }
@@ -654,13 +695,43 @@ function renderWithLocalHistory(localHistories, animateForAi = null, preserveFoc
             for (let i = 0; i < hist.length; i++) {
                 const line = hist[i];
                 let cls = "system";
-                if (line.startsWith("Detective:")) cls = "detective";
-                else if (line.startsWith(`${ai}:`) || line.startsWith("IA-")) cls = "ai";
+                let labelText = "";
+                let messageText = line;
+
+                if (line.startsWith("Detective:")) {
+                    cls = "detective";
+                    labelText = "👤 Detective";
+                    messageText = line.substring("Detective:".length).trim();
+                } else if (line.startsWith(`${ai}:`)) {
+                    cls = "ai";
+                    labelText = `🤖 ${ai}`;
+                    messageText = line.substring(`${ai}:`.length).trim();
+                } else if (line.startsWith("IA-")) {
+                    cls = "ai";
+                    labelText = `🤖 ${ai}`;
+                    messageText = line.substring(line.indexOf(":") + 1).trim();
+                }
+
                 const msg = document.createElement("div");
                 msg.className = `message ${cls}`;
                 if (i === hist.length - 1 && line.includes("[ 🧠 Sto pensando"))
                     msg.id = `thinking-placeholder-${aiId}`;
-                msg.textContent = line;
+
+                // Add label and text structure like narrator
+                if (labelText) {
+                    const label = document.createElement("div");
+                    label.className = "message-label";
+                    label.textContent = labelText;
+                    msg.appendChild(label);
+
+                    const text = document.createElement("div");
+                    text.className = "message-text";
+                    text.textContent = messageText;
+                    msg.appendChild(text);
+                } else {
+                    msg.textContent = messageText;
+                }
+
                 messagesWrap.appendChild(msg);
             }
         } else {
@@ -816,7 +887,7 @@ function renderWithLocalHistory(localHistories, animateForAi = null, preserveFoc
             content.setAttribute("role", "textbox");
             content.setAttribute("aria-label", `Input per ${ai}`);
             content.spellcheck = false;
-            content.setAttribute("placeholder", "Scrivi qui la tua domanda...");
+            content.setAttribute("placeholder", "Scrivi la tua domanda...");
             content.addEventListener("keydown", (e) => {
                 if (e.key === "Enter" && !e.shiftKey) {
                     e.preventDefault();
@@ -829,7 +900,7 @@ function renderWithLocalHistory(localHistories, animateForAi = null, preserveFoc
             sendBtn.className = "terminal-send-btn";
             sendBtn.type = "button";
             sendBtn.title = "Invia";
-            sendBtn.innerText = "🔍";
+            sendBtn.innerText = "Invia";
             sendBtn.onclick = () => askQuestionFor(ai);
             sendBtn.onmousedown = (ev) => ev.preventDefault();
             prompt.appendChild(sendBtn);

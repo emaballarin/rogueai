@@ -14,5 +14,10 @@
         "model": "gpt-4.1",
         "max_tokens": 50,
         "temperature": 0.9
+    },
+    "narrator": {
+        "model": "gpt-4o",
+        "max_tokens": 1000,
+        "temperature": 0.8
     }
 }
