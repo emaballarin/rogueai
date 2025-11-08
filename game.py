@@ -128,10 +128,20 @@ class Game:
     decision: str
     selected_ai: str
     story: str
+    narrator_session_id: str | None
+    yanked: bool
 
-    def __init__(self: Self, story: str, num_turns: int = 5, generated_prompts: Dict[str, str] | None = None) -> None:
+    def __init__(
+        self: Self,
+        story: str,
+        num_turns: int = 5,
+        generated_prompts: Dict[str, str] | None = None,
+        narrator_session_id: str | None = None,
+    ) -> None:
         self.num_turns = num_turns
         self.story = story
+        self.narrator_session_id = narrator_session_id
+        self.yanked = False
         if torch.rand(1).item() > 0.5:
             self.agents = [
                 Agent("IA-1", TRUTHFUL, self.story, generated_prompts),
@@ -148,6 +158,12 @@ class Game:
         self.endgame_triggered = False
         self.decision = ""
         self.selected_ai = self.agents[0].name
+
+    def get_known_facts(self: Self) -> str | None:
+        """Get the known_facts from generated prompts if available."""
+        if self.agents and self.agents[0].generated_prompts:
+            return self.agents[0].generated_prompts.get("known_facts")
+        return None
 
     def next_turn(self: Self, agent_name: str, question: str, api_key: str | None = None) -> Dict[str, Any]:
         if self.finished:
@@ -203,11 +219,17 @@ class Game:
             "endgame_triggered": self.endgame_triggered,
             "decision": self.decision,
             "selected_ai": self.selected_ai,
+            "narrator_session_id": self.narrator_session_id,
+            "yanked": self.yanked,
         }
 
     @staticmethod
     def from_dict(data: dict) -> "Game":
-        game = Game(num_turns=data["num_turns"], story=data["story"])
+        game = Game(
+            num_turns=data["num_turns"],
+            story=data["story"],
+            narrator_session_id=data.get("narrator_session_id"),
+        )
         game.agents = [Agent.from_dict(a) for a in data["agents"]]
         game.histories = data["histories"]
         game.question_counts = data["question_counts"]
@@ -215,6 +237,7 @@ class Game:
         game.endgame_triggered = data["endgame_triggered"]
         game.decision = data["decision"]
         game.selected_ai = data["selected_ai"]
+        game.yanked = data.get("yanked", False)
         return game
 
     def is_over(self: Self) -> bool:
@@ -230,6 +253,10 @@ class NarratorSession:
     generated_prompts: Dict[str, str] | None
     base_prompt: str | None
     audio_cache: Dict[int, bytes]
+    yanked: bool
+    pre_yank: bool
+    game_session_id: str | None
+    completed: bool
 
     def __init__(self: Self, max_messages: int = 5) -> None:
         self.messages: List[Dict[str, str]] = []
@@ -238,6 +265,10 @@ class NarratorSession:
         self.generated_prompts: Dict[str, str] | None = None
         self.base_prompt: str | None = None
         self.audio_cache: Dict[int, bytes] = {}
+        self.yanked: bool = False
+        self.pre_yank: bool = False
+        self.game_session_id: str | None = None
+        self.completed: bool = False
 
     def add_message(self: Self, role: str, content: str) -> None:
         """Add a message to the conversation."""
@@ -263,14 +294,17 @@ class NarratorSession:
             generation_instructions: str = f.read()
 
         # Create messages for prompt generation
-        conversation_summary = "\n\n".join([f"{msg['role'].upper()}: {msg['content']}" for msg in self.messages])
+        if self.message_count == 0:
+            # Autonomous generation: no user input
+            user_prompt = "Generate a creative and engaging scenario autonomously. Create the three required prompts for an original story."
+        else:
+            # User-guided generation: based on conversation
+            conversation_summary = "\n\n".join([f"{msg['role'].upper()}: {msg['content']}" for msg in self.messages])
+            user_prompt = f"Based on this conversation, generate the three required prompts:\n\n{conversation_summary}"
 
         generation_prompt = [
             {"role": "system", "content": generation_instructions},
-            {
-                "role": "user",
-                "content": f"Based on this conversation, generate the three required prompts:\n\n{conversation_summary}",
-            },
+            {"role": "user", "content": user_prompt},
         ]
 
         try:
@@ -332,6 +366,10 @@ class NarratorSession:
             "max_messages": self.max_messages,
             "generated_prompts": self.generated_prompts,
             "base_prompt": self.base_prompt,
+            "yanked": self.yanked,
+            "pre_yank": self.pre_yank,
+            "game_session_id": self.game_session_id,
+            "completed": self.completed,
         }
 
     @staticmethod
@@ -342,4 +380,8 @@ class NarratorSession:
         session.generated_prompts = data.get("generated_prompts")
         session.base_prompt = data.get("base_prompt")
         session.audio_cache = {}
+        session.yanked = data.get("yanked", False)
+        session.pre_yank = data.get("pre_yank", False)
+        session.game_session_id = data.get("game_session_id")
+        session.completed = data.get("completed", False)
         return session

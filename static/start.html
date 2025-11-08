@@ -27,6 +27,32 @@
             </div>
         </div>
 
+        <!-- Session Management Modal -->
+        <div id="resume-modal" class="modal-overlay" style="display: none">
+            <div class="modal-content" style="max-width: 700px">
+                <h2>🔄 Gestisci Sessioni</h2>
+                <p>Riprendi una sessione esistente o iniziane una nuova.</p>
+
+                <div class="resume-tabs">
+                    <button id="tab-games" class="tab-button active" onclick="showResumeTab('games')">🎮 Giochi</button>
+                    <button id="tab-scenarios" class="tab-button" onclick="showResumeTab('scenarios')">
+                        📜 Scenari Generati
+                    </button>
+                    <button id="tab-conversations" class="tab-button" onclick="showResumeTab('conversations')">
+                        💬 Conversazioni
+                    </button>
+                </div>
+
+                <div id="resume-content" class="resume-content">
+                    <!-- Content will be dynamically populated -->
+                </div>
+
+                <div class="modal-actions">
+                    <button id="close-modal-btn" class="btn-secondary">Chiudi</button>
+                </div>
+            </div>
+        </div>
+
         <h1>Scegli una storia</h1>
         <div class="stories">
             <div class="story" onclick="startGame('email')">
@@ -41,21 +67,289 @@
                 <img src="/static/images/superheroes.png" alt="Sentinel vs Omnicron" />
                 <span>Sentinel vs Omnicron</span>
             </div>
-            <div class="story" onclick="startNarrator()">
+            <div class="story" id="autorogue-tile" onclick="startNarrator()">
                 <img src="/static/images/autorogue.png" alt="AutoRogueAI" />
                 <span>AutoRogueAI</span>
             </div>
         </div>
 
+        <!-- Session Management Button -->
+        <div class="session-management-section">
+            <button id="manage-sessions-btn" class="manage-sessions-button" onclick="openSessionManagement()">
+                <span class="btn-icon">📋</span>
+                <span class="btn-text">Gestisci Sessioni</span>
+                <span id="session-count-badge" class="session-count-badge" style="display: none"></span>
+            </button>
+        </div>
+
         <script>
             function startGame(story) {
+                // Clear any existing session to ensure a fresh start
+                localStorage.removeItem("sessionId");
                 // redirect to index.html with story query
                 window.location.href = `/index?story=${encodeURIComponent(story)}`;
             }
 
+            // Session management data
+            let resumeData = { conversations: [], scenarios: [], games: [] };
+            let currentTab = "games";
+
+            async function checkResumableSessions() {
+                try {
+                    const [conversations, scenarios, games] = await Promise.all([
+                        fetch("/api/narrator/incomplete").then((r) => r.json()),
+                        fetch("/api/scenarios/generated").then((r) => r.json()),
+                        fetch("/api/games/incomplete").then((r) => r.json()),
+                    ]);
+
+                    resumeData.conversations = conversations.sessions || [];
+                    resumeData.scenarios = scenarios.scenarios || [];
+                    resumeData.games = games.games || [];
+
+                    // Count resumable sessions only (conversations + games, not finished)
+                    const resumableCount = resumeData.conversations.length + resumeData.games.length;
+
+                    // Show badge on session management button if there are resumable sessions
+                    if (resumableCount > 0) {
+                        const badge = document.getElementById("session-count-badge");
+                        badge.textContent = resumableCount;
+                        badge.style.display = "inline-block";
+                    }
+                } catch (err) {
+                    console.error("Failed to check resumable sessions:", err);
+                }
+            }
+
             function startNarrator() {
-                // redirect to narrator page
+                // Always start a new narrator session
                 window.location.href = `/narrator`;
+            }
+
+            async function openSessionManagement() {
+                // Show the session management modal on the homepage
+                const modal = document.getElementById("resume-modal");
+                modal.style.display = "flex";
+
+                // Refresh session data
+                await checkResumableSessions();
+
+                // Show games tab by default
+                showResumeTab("games");
+            }
+
+            function showResumeTab(tab) {
+                currentTab = tab;
+
+                // Update tab buttons
+                document.querySelectorAll(".tab-button").forEach((btn) => {
+                    btn.classList.remove("active");
+                });
+                document.getElementById(`tab-${tab}`).classList.add("active");
+
+                // Populate content
+                const content = document.getElementById("resume-content");
+
+                if (tab === "games") {
+                    if (resumeData.games.length === 0) {
+                        content.innerHTML = '<p class="empty-message">Nessun gioco da riprendere</p>';
+                    } else {
+                        content.innerHTML = resumeData.games
+                            .map((game) => {
+                                const totalQuestions = Object.values(game.question_counts).reduce((a, b) => a + b, 0);
+
+                                // Map story codes to display names
+                                const storyNames = {
+                                    email: "Email Malevola",
+                                    bank_credentials: "Credenziali Rubate",
+                                    superheroes: "Sentinel vs Omnicron",
+                                    autorogue: "AutoRogueAI",
+                                };
+                                const storyDisplay = storyNames[game.story] || game.story;
+
+                                return `
+                                <div class="resume-item" onclick="resumeGame('${game.session_id}', '${game.story}')">
+                                    <div class="resume-item-header">
+                                        <strong>🎮 ${storyDisplay}</strong>
+                                        <span class="badge">${totalQuestions} domande poste</span>
+                                    </div>
+                                    <div class="resume-item-info">
+                                        IA-1: ${game.question_counts["IA-1"] || 0}/${game.num_turns} |
+                                        IA-2: ${game.question_counts["IA-2"] || 0}/${game.num_turns}
+                                    </div>
+                                    <button class="yank-button" onclick="yankGame('${game.session_id}', event)" title="Rimuovi">🗑️</button>
+                                </div>
+                            `;
+                            })
+                            .join("");
+                    }
+                } else if (tab === "scenarios") {
+                    if (resumeData.scenarios.length === 0) {
+                        content.innerHTML = '<p class="empty-message">Nessuno scenario disponibile</p>';
+                    } else {
+                        content.innerHTML = resumeData.scenarios
+                            .map((scenario) => {
+                                const timestamp = new Date(scenario.timestamp).toLocaleString("it-IT");
+                                const timesUsed = scenario.times_used || 0;
+                                const preview = scenario.known_facts.substring(0, 150);
+                                const truncated = scenario.known_facts.length > 150 ? preview + "..." : preview;
+
+                                return `
+                            <div class="resume-item finished-game-item">
+                                <div class="resume-item-header">
+                                    <strong>📜 Scenario</strong>
+                                    <span class="badge">Usato ${timesUsed} ${timesUsed === 1 ? "volta" : "volte"}</span>
+                                </div>
+                                <div class="resume-item-info">
+                                    <div>${timestamp}</div>
+                                    <div class="scenario-preview">${truncated}</div>
+                                </div>
+                                <div class="finished-game-actions">
+                                    <button class="action-button primary" onclick="startGameFromScenario('${scenario.scenario_id}', event)" title="Avvia gioco">🎮 Avvia Gioco</button>
+                                </div>
+                                <button class="yank-button" onclick="yankScenario('${scenario.scenario_id}', event)" title="Rimuovi">🗑️</button>
+                            </div>
+                        `;
+                            })
+                            .join("");
+                    }
+                } else if (tab === "conversations") {
+                    if (resumeData.conversations.length === 0) {
+                        content.innerHTML = '<p class="empty-message">Nessuna conversazione da riprendere</p>';
+                    } else {
+                        content.innerHTML = resumeData.conversations
+                            .map(
+                                (conv) => `
+                            <div class="resume-item" onclick="resumeConversation('${conv.session_id}')">
+                                <div class="resume-item-header">
+                                    <strong>💬 Conversazione</strong>
+                                    <span class="badge">${conv.message_count}/${conv.max_messages} messaggi</span>
+                                </div>
+                                <div class="resume-item-info">
+                                    ${conv.completed ? "✅ Scenario generato" : "⏳ In corso"}
+                                </div>
+                                <button class="yank-button" onclick="yankConversation('${conv.session_id}', event)" title="Rimuovi">🗑️</button>
+                            </div>
+                        `
+                            )
+                            .join("");
+                    }
+                }
+            }
+
+            function resumeConversation(sessionId) {
+                // Navigate to narrator page with resume parameter
+                window.location.href = `/narrator?resume=${sessionId}`;
+            }
+
+            function resumeGame(sessionId, story) {
+                // Store session ID and navigate to game with correct story
+                localStorage.setItem("sessionId", sessionId);
+                window.location.href = `/index?story=${encodeURIComponent(story)}`;
+            }
+
+            async function yankConversation(sessionId, event) {
+                if (event) event.stopPropagation();
+
+                if (!confirm("Sei sicuro di voler rimuovere questa conversazione?")) {
+                    return;
+                }
+
+                try {
+                    const res = await fetch(`/api/narrator/yank/${sessionId}`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                    });
+
+                    if (!res.ok) {
+                        throw new Error("Failed to yank conversation");
+                    }
+
+                    // Remove from local data and refresh
+                    resumeData.conversations = resumeData.conversations.filter((c) => c.session_id !== sessionId);
+                    showResumeTab(currentTab);
+
+                    // Clear localStorage if we just deleted the current session
+                    const storedSessionId = localStorage.getItem("sessionId");
+                    if (storedSessionId === sessionId) {
+                        localStorage.removeItem("sessionId");
+                    }
+
+                    // Update badge
+                    await checkResumableSessions();
+                } catch (err) {
+                    console.error("Failed to yank conversation:", err);
+                    alert("❌ Errore nella rimozione della conversazione");
+                }
+            }
+
+            async function yankGame(sessionId, event) {
+                if (event) event.stopPropagation();
+
+                if (!confirm("Sei sicuro di voler rimuovere questo gioco?")) {
+                    return;
+                }
+
+                try {
+                    const res = await fetch(`/api/games/yank/${sessionId}`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                    });
+
+                    if (!res.ok) {
+                        throw new Error("Failed to yank game");
+                    }
+
+                    // Remove from local data and refresh
+                    resumeData.games = resumeData.games.filter((g) => g.session_id !== sessionId);
+                    showResumeTab(currentTab);
+
+                    // Clear localStorage if we just deleted the current session
+                    const storedSessionId = localStorage.getItem("sessionId");
+                    if (storedSessionId === sessionId) {
+                        localStorage.removeItem("sessionId");
+                    }
+
+                    // Update badge
+                    await checkResumableSessions();
+                } catch (err) {
+                    console.error("Failed to yank game:", err);
+                    alert("❌ Errore nella rimozione del gioco");
+                }
+            }
+
+            function startGameFromScenario(scenarioId, event) {
+                if (event) event.stopPropagation();
+
+                // Clear any existing session to force new game creation
+                localStorage.removeItem("sessionId");
+
+                // Navigate to game with scenario_id parameter
+                window.location.href = `/index?story=autorogue&scenario_id=${scenarioId}`;
+            }
+
+            async function yankScenario(scenarioId, event) {
+                if (event) event.stopPropagation();
+
+                if (!confirm("Sei sicuro di voler eliminare questo scenario?")) {
+                    return;
+                }
+
+                try {
+                    const res = await fetch(`/api/scenarios/delete/${scenarioId}`, {
+                        method: "POST",
+                    });
+
+                    if (!res.ok) {
+                        throw new Error("Failed to delete scenario");
+                    }
+
+                    // Remove from local data and refresh
+                    resumeData.scenarios = resumeData.scenarios.filter((s) => s.scenario_id !== scenarioId);
+                    showResumeTab(currentTab);
+                } catch (err) {
+                    console.error("Failed to delete scenario:", err);
+                    alert("❌ Errore nell'eliminazione dello scenario");
+                }
             }
 
             /* Cookie helper functions */
@@ -191,11 +485,28 @@
                 // Initialize API key button state
                 updateApiKeyButton();
 
-                // Close modal when clicking outside
-                const modal = document.getElementById("api-key-modal");
-                modal.addEventListener("click", (e) => {
-                    if (e.target === modal) {
+                // Check for resumable sessions
+                checkResumableSessions();
+
+                // Close API key modal when clicking outside
+                const apiKeyModal = document.getElementById("api-key-modal");
+                apiKeyModal.addEventListener("click", (e) => {
+                    if (e.target === apiKeyModal) {
                         toggleApiKeyModal();
+                    }
+                });
+
+                // Close resume modal when clicking close button or outside
+                const resumeModal = document.getElementById("resume-modal");
+                const closeModalBtn = document.getElementById("close-modal-btn");
+
+                closeModalBtn.addEventListener("click", () => {
+                    resumeModal.style.display = "none";
+                });
+
+                resumeModal.addEventListener("click", (e) => {
+                    if (e.target === resumeModal) {
+                        resumeModal.style.display = "none";
                     }
                 });
             });

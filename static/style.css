@@ -954,3 +954,77 @@ button.big-reload:focus {
         font-size: clamp(1.6rem, 10vw, 3rem);
     }
 }
+
+/* Scenario Context Panel for Narrator-Generated Games */
+.scenario-context-panel {
+    background-color: var(--bg-panel);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 20px;
+    box-shadow: 0 4px 6px var(--shadow);
+    transition: all 0.3s ease;
+}
+
+.scenario-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 15px;
+    color: var(--accent);
+    font-size: 1.1rem;
+}
+
+.scenario-text {
+    background-color: var(--bg-page);
+    padding: 15px;
+    border-radius: 8px;
+    border-left: 3px solid var(--accent-blue);
+    white-space: pre-wrap;
+    line-height: 1.6;
+    max-height: 200px;
+    overflow-y: auto;
+    color: var(--text);
+    font-size: 0.95rem;
+    transition: all 0.3s ease;
+}
+
+.scenario-context-panel.collapsed .scenario-text {
+    display: none;
+}
+
+.scenario-toggle {
+    background: none;
+    border: none;
+    color: var(--accent);
+    font-size: 1.2rem;
+    cursor: pointer;
+    padding: 5px 10px;
+    transition: transform 0.3s ease;
+}
+
+.scenario-toggle:hover {
+    transform: scale(1.1);
+}
+
+.scenario-context-panel.collapsed .scenario-toggle {
+    transform: rotate(-90deg);
+}
+
+/* Scrollbar styling for scenario text */
+.scenario-text::-webkit-scrollbar {
+    width: 8px;
+}
+
+.scenario-text::-webkit-scrollbar-track {
+    background: var(--bg-panel);
+    border-radius: 4px;
+}
+
+.scenario-text::-webkit-scrollbar-thumb {
+    background: var(--muted);
+    border-radius: 4px;
+}
+
+.scenario-text::-webkit-scrollbar-thumb:hover {
+    background: var(--muted-2);
+}

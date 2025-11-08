@@ -6,7 +6,7 @@ let messageCount = 0;
 const MAX_MESSAGES = 5;
 let messages = [];
 let isGenerating = false;
-let generatedScenario = null;
+let generatedScenarios = []; // Changed to array to support multiple scenarios
 let ttsEnabled = true;
 let currentAudio = null;
 let thinkingInterval = null;
@@ -105,6 +105,9 @@ function stopThinking() {
 
 /* Initialize narrator session */
 async function initSession() {
+    const userInput = document.getElementById("user-input");
+    const sendBtn = document.getElementById("send-btn");
+
     try {
         const headers = { "Content-Type": "application/json" };
         const apiKey = getApiKey();
@@ -137,9 +140,63 @@ async function initSession() {
         }
 
         render();
+
+        // Enable input and send button after successful initialization
+        userInput.disabled = false;
+        userInput.placeholder = "Descrivi la storia che vuoi creare... (oppure genera subito uno scenario autonomo)";
+        sendBtn.disabled = !userInput.value.trim(); // Enable only if there's text
+        userInput.focus();
+
+        // Load any existing scenarios for this session
+        await loadScenarios();
     } catch (err) {
         console.error("Failed to initialize session:", err);
         showError("Errore nell'inizializzazione della sessione. Riprova.");
+        // Keep input disabled on error
+        userInput.placeholder = "Errore nell'inizializzazione. Ricarica la pagina.";
+    }
+}
+
+/* Resume existing narrator session */
+async function resumeSession(sessionIdToResume) {
+    const userInput = document.getElementById("user-input");
+    const sendBtn = document.getElementById("send-btn");
+
+    try {
+        const res = await fetch(`/api/narrator/resume/${sessionIdToResume}`);
+        const data = await res.json();
+
+        if (data.error) {
+            showError(data.error);
+            // Fallback to new session
+            initSession();
+            return;
+        }
+
+        // Load the session state
+        sessionId = data.session_id;
+        messageCount = data.message_count;
+        messages = data.messages.map((msg) => ({
+            role: msg.role === "assistant" ? "narrator" : "user",
+            text: msg.content,
+            timestamp: new Date().toISOString(),
+        }));
+
+        render();
+
+        // Load scenarios for this session
+        await loadScenarios();
+
+        // Enable input and send button after successful resume
+        userInput.disabled = false;
+        userInput.placeholder = "Descrivi la storia che vuoi creare... (oppure genera subito uno scenario autonomo)";
+        sendBtn.disabled = !userInput.value.trim(); // Enable only if there's text
+        userInput.focus();
+    } catch (err) {
+        console.error("Failed to resume session:", err);
+        showError("Errore nel riprendere la sessione");
+        // Fallback to new session
+        initSession();
     }
 }
 
@@ -228,11 +285,15 @@ async function sendMessage() {
 
 /* Generate scenario prompts */
 async function generateScenario() {
-    if (isGenerating || messages.length === 0) return;
+    if (isGenerating) return;
 
     isGenerating = true;
-    document.getElementById("generate-btn").disabled = true;
-    showInfo("Generazione scenario in corso...");
+    const generateBtn = document.getElementById("generate-btn");
+    const sendGenerateBtn = document.getElementById("send-generate-btn");
+    generateBtn.disabled = true;
+    if (sendGenerateBtn) sendGenerateBtn.disabled = true;
+
+    showInfo(messageCount === 0 ? "Generazione scenario autonomo in corso..." : "Generazione scenario in corso...");
 
     try {
         const headers = { "Content-Type": "application/json" };
@@ -249,36 +310,106 @@ async function generateScenario() {
         }
 
         const data = await res.json();
-        generatedScenario = data;
 
-        // Show generation result
+        // Add scenario to list
+        generatedScenarios.push(data);
+
+        // Reload scenarios from server to get complete data
+        await loadScenarios();
+
         clearInfo();
-        showGenerationResult(data);
+        showSuccess("✅ Scenario generato! Puoi continuare la conversazione o generarne altri.");
     } catch (err) {
         console.error("Failed to generate scenario:", err);
         showError("Errore nella generazione dello scenario. Riprova.");
+    } finally {
         isGenerating = false;
-        document.getElementById("generate-btn").disabled = false;
+        generateBtn.disabled = false;
+        if (sendGenerateBtn && messageCount < MAX_MESSAGES) {
+            sendGenerateBtn.disabled = false;
+        }
     }
 }
 
-/* Show generation result */
-function showGenerationResult(data) {
-    const resultDiv = document.getElementById("generation-result");
-    const generatedPromptsText = document.getElementById("generated-prompts-text");
+/* Load scenarios from server */
+async function loadScenarios() {
+    try {
+        const res = await fetch("/api/scenarios/generated");
+        if (!res.ok) throw new Error("Failed to load scenarios");
 
-    // Display ONLY known_facts (other sections are kept internal)
-    generatedPromptsText.textContent = data.prompts.known_facts || "N/A";
+        const data = await res.json();
 
-    resultDiv.style.display = "block";
+        // Filter scenarios for current narrator session
+        generatedScenarios = data.scenarios.filter((s) => s.narrator_session_id === sessionId);
 
-    // Scroll to result
-    resultDiv.scrollIntoView({ behavior: "smooth" });
-
-    // Play known_facts audio if available
-    if (data.has_audio && ttsEnabled) {
-        playBasePromptAudio();
+        renderScenarios();
+    } catch (err) {
+        console.error("Failed to load scenarios:", err);
     }
+}
+
+/* Render scenarios list */
+function renderScenarios() {
+    const scenariosList = document.getElementById("scenarios-list");
+    const scenariosContainer = document.getElementById("scenarios-container");
+
+    if (generatedScenarios.length === 0) {
+        scenariosList.style.display = "none";
+        return;
+    }
+
+    scenariosList.style.display = "block";
+    scenariosContainer.innerHTML = "";
+
+    generatedScenarios.forEach((scenario, index) => {
+        const scenarioDiv = document.createElement("div");
+        scenarioDiv.className = "scenario-item";
+
+        const timestamp = new Date(scenario.timestamp).toLocaleString("it-IT");
+        const timesUsed = scenario.times_used || 0;
+
+        scenarioDiv.innerHTML = `
+            <div class="scenario-header">
+                <strong>📜 Scenario ${index + 1}</strong>
+                <span class="scenario-meta">${timestamp} • Usato ${timesUsed} ${timesUsed === 1 ? "volta" : "volte"}</span>
+            </div>
+            <div class="scenario-preview">${scenario.known_facts}</div>
+            <div class="scenario-actions">
+                <button class="action-button primary" onclick="startGameFromScenario('${scenario.scenario_id}')">🎮 Avvia Gioco</button>
+                <button class="action-button" onclick="deleteScenario('${scenario.scenario_id}')">🗑️ Elimina</button>
+            </div>
+        `;
+
+        scenariosContainer.appendChild(scenarioDiv);
+    });
+
+    // Scroll to scenarios list
+    scenariosList.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+/* Delete a scenario */
+async function deleteScenario(scenarioId) {
+    if (!confirm("Sei sicuro di voler eliminare questo scenario?")) return;
+
+    try {
+        const res = await fetch(`/api/scenarios/delete/${scenarioId}`, {
+            method: "POST",
+        });
+
+        if (!res.ok) throw new Error("Failed to delete scenario");
+
+        showSuccess("✅ Scenario eliminato!");
+        await loadScenarios();
+    } catch (err) {
+        console.error("Failed to delete scenario:", err);
+        showError("Errore nell'eliminazione dello scenario.");
+    }
+}
+
+/* Start game from a specific scenario */
+function startGameFromScenario(scenarioId) {
+    // Navigate to game with scenario_id parameter
+    window.location.href = `/index?story=autorogue&scenario_id=${scenarioId}`;
 }
 
 /* Play audio for narrator message */
@@ -347,15 +478,18 @@ function playBasePromptAudio() {
     }
 }
 
-/* Start game with generated scenario */
-function startGame() {
-    if (!generatedScenario) return;
+/* Send message and generate scenario (combined action) */
+async function sendAndGenerate() {
+    const input = document.getElementById("user-input");
+    const message = input.value.trim();
 
-    // Store generated scenario in sessionStorage for the game to pick up
-    sessionStorage.setItem("generatedScenario", JSON.stringify(generatedScenario));
+    if (!message || messageCount >= MAX_MESSAGES) return;
 
-    // Navigate to game
-    window.location.href = `/index?story=autorogue&narrator_session=${sessionId}`;
+    // Send the message first
+    await sendMessage();
+
+    // Then generate scenario
+    await generateScenario();
 }
 
 /* Go back to story selection */
@@ -431,6 +565,12 @@ function showError(message) {
 function showInfo(message) {
     // You could implement a toast notification here
     console.info(message);
+}
+
+/* Show success message */
+function showSuccess(message) {
+    // Simple alert for now
+    alert(message);
 }
 
 /* Clear info message */
@@ -546,9 +686,21 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // User input
     const userInput = document.getElementById("user-input");
+    const sendGenerateBtn = document.getElementById("send-generate-btn");
+
     userInput.addEventListener("input", () => {
         const hasText = userInput.value.trim().length > 0;
         sendBtn.disabled = !hasText || messageCount >= MAX_MESSAGES;
+
+        // Show/enable "Invia e Genera" button when there's text
+        if (sendGenerateBtn) {
+            if (hasText && messageCount < MAX_MESSAGES) {
+                sendGenerateBtn.style.display = "inline-block";
+                sendGenerateBtn.disabled = false;
+            } else {
+                sendGenerateBtn.style.display = "none";
+            }
+        }
     });
 
     userInput.addEventListener("keydown", (e) => {
@@ -564,17 +716,14 @@ document.addEventListener("DOMContentLoaded", () => {
     const generateBtn = document.getElementById("generate-btn");
     generateBtn.addEventListener("click", generateScenario);
 
+    // Send and Generate button
+    if (sendGenerateBtn) {
+        sendGenerateBtn.addEventListener("click", sendAndGenerate);
+    }
+
     // Back button
     const backBtn = document.getElementById("back-btn");
     backBtn.addEventListener("click", goBack);
-
-    // Read base prompt button
-    const readBasePromptBtn = document.getElementById("read-base-prompt-btn");
-    readBasePromptBtn.addEventListener("click", playBasePromptAudio);
-
-    // Start game button
-    const startGameBtn = document.getElementById("start-game-btn");
-    startGameBtn.addEventListener("click", startGame);
 
     // API key toggle button
     const apiKeyToggle = document.getElementById("api-key-toggle");
@@ -591,6 +740,15 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     });
 
-    // Initialize session
-    initSession();
+    // Check for resume parameter and initialize session accordingly
+    const urlParams = new URLSearchParams(window.location.search);
+    const resumeSessionId = urlParams.get("resume");
+
+    if (resumeSessionId) {
+        // Resume existing session
+        resumeSession(resumeSessionId);
+    } else {
+        // Start new session
+        initSession();
+    }
 });

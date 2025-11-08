@@ -52,19 +52,27 @@ SESSION_NOT_FOUND: str = "Session not found"
 SESSIONS_FILE: str = ".sessions/session_store.json"
 STATS_FILE: str = ".stats/game_stats.json"
 NARRATOR_SESSIONS_FILE: str = ".sessions/narrator_sessions.json"
+FINISHED_GAMES_FILE: str = ".sessions/finished_games.json"
+GENERATED_SCENARIOS_FILE: str = ".sessions/generated_scenarios.json"
 GENERATED_STORIES_DIR: str = ".generated_stories"
+GAME_LOGS_DIR: str = ".game_logs"
 
 # Path objects used by helper functions (prefer Path for clearer APIs)
 SESSIONS_PATH: Path = Path(SESSIONS_FILE)
 STATS_PATH: Path = Path(STATS_FILE)
 NARRATOR_SESSIONS_PATH: Path = Path(NARRATOR_SESSIONS_FILE)
+FINISHED_GAMES_PATH: Path = Path(FINISHED_GAMES_FILE)
+GENERATED_SCENARIOS_PATH: Path = Path(GENERATED_SCENARIOS_FILE)
 GENERATED_STORIES_PATH: Path = Path(GENERATED_STORIES_DIR)
+GAME_LOGS_PATH: Path = Path(GAME_LOGS_DIR)
 
 config.init()
 
 # In-memory session stores
 sessions: Dict[str, Game] = {}
 narrator_sessions: Dict[str, NarratorSession] = {}
+finished_games: Dict[str, dict] = {}  # Stores minimal game data, full logs in GAME_LOGS_DIR
+generated_scenarios: Dict[str, dict] = {}  # Stores reusable narrator-generated scenarios
 
 app = FastAPI()
 app.add_middleware(
@@ -124,7 +132,7 @@ def load_sessions_from_disk() -> None:
 
     This function is resilient to missing/empty or invalid session files.
     Invalid files are backed up and replaced with an empty object. Only
-    non-finished sessions are restored into memory.
+    non-finished, non-yanked sessions are restored into memory.
     """
     ensure_parent_dirs(SESSIONS_PATH)
     if not SESSIONS_PATH.exists():
@@ -143,7 +151,7 @@ def load_sessions_from_disk() -> None:
     for k, v in data.items():
         try:
             game = Game.from_dict(v)
-            if not game.is_over():
+            if not game.is_over() and not game.yanked:
                 sessions[k] = game
         except Exception:
             logger.exception("Failed to load session %s", k)
@@ -212,6 +220,223 @@ def _append_structured_log(entry: dict[str, Any]) -> None:
         logger.exception("Failed to write stats file %s, continuing without logging", STATS_PATH)
 
 
+def save_narrator_sessions_to_disk() -> None:
+    """Persist the current `narrator_sessions` mapping to disk.
+
+    This overwrites the narrator sessions file with the JSON representation of
+    the in-memory `narrator_sessions` dict. Sessions where the user has never
+    sent a message (message_count == 0) are skipped to avoid clutter.
+    Callers should expect IO errors to be propagated so they can be logged or
+    retried by the caller.
+    """
+    ensure_parent_dirs(NARRATOR_SESSIONS_PATH)
+    # Filter out sessions where user never sent a message
+    sessions_to_save = {k: v for k, v in narrator_sessions.items() if v.message_count > 0}
+    with NARRATOR_SESSIONS_PATH.open("w", encoding="utf-8") as f:
+        json.dump({k: v.to_dict() for k, v in sessions_to_save.items()}, f)
+
+
+def load_narrator_sessions_from_disk() -> None:
+    """Load narrator sessions from disk into the global `narrator_sessions` mapping.
+
+    This function is resilient to missing/empty or invalid narrator session files.
+    Invalid files are backed up and replaced with an empty object. Only
+    non-yanked sessions are restored into memory.
+    """
+    ensure_parent_dirs(NARRATOR_SESSIONS_PATH)
+    if not NARRATOR_SESSIONS_PATH.exists():
+        NARRATOR_SESSIONS_PATH.write_text("{}")
+    raw = NARRATOR_SESSIONS_PATH.read_text(encoding="utf-8")
+    if raw.strip() == "":
+        NARRATOR_SESSIONS_PATH.write_text("{}")
+        return
+    try:
+        data = json.loads(raw)
+        if not isinstance(data, dict):
+            raise ValueError("narrator sessions file not a dict")
+    except Exception:
+        backup_and_reset(NARRATOR_SESSIONS_PATH)
+        return
+    for k, v in data.items():
+        try:
+            session = NarratorSession.from_dict(v)
+            # Only load non-yanked sessions
+            if not session.yanked:
+                narrator_sessions[k] = session
+        except Exception:
+            logger.exception("Failed to load narrator session %s", k)
+
+
+def save_finished_games_to_disk() -> None:
+    """Persist the current `finished_games` mapping to disk.
+
+    This overwrites the finished games file with the JSON representation of
+    the in-memory `finished_games` dict. Callers should expect IO errors to
+    be propagated so they can be logged or retried by the caller.
+    """
+    ensure_parent_dirs(FINISHED_GAMES_PATH)
+    with FINISHED_GAMES_PATH.open("w", encoding="utf-8") as f:
+        # finished_games now stores dicts directly, not Game objects
+        json.dump(finished_games, f, indent=2)
+
+
+def move_finished_game_to_archive(session_id: str, game: Game) -> None:
+    """Move a finished AutoRogueAI game from sessions to finished_games.
+
+    Saves full game conversation to game_logs directory and stores minimal
+    metadata in finished_games for UI display.
+    """
+    if game.story == "autorogue" and game.is_over():
+        # Save full game log to disk
+        try:
+            GAME_LOGS_PATH.mkdir(parents=True, exist_ok=True)
+            log_file = GAME_LOGS_PATH / f"{session_id}.json"
+            with log_file.open("w", encoding="utf-8") as f:
+                json.dump(game.to_dict(), f, indent=2)
+        except Exception:
+            logger.exception(f"Failed to save full game log for {session_id}")
+
+        # Extract minimal data for finished_games
+        # Get known_facts from generated_prompts if available
+        known_facts = ""
+        if game.agents and game.agents[0].generated_prompts:
+            known_facts = game.agents[0].generated_prompts.get("known_facts", "")
+
+        # Build minimal data structure
+        minimal_data = {
+            "session_id": session_id,
+            "story": game.story,
+            "narrator_session_id": game.narrator_session_id,
+            "known_facts": known_facts,
+            "decision": game.decision,
+            "finished": game.finished,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "yanked": game.yanked,
+        }
+
+        # Add to finished games with minimal data
+        finished_games[session_id] = minimal_data
+
+        # Remove from active sessions
+        if session_id in sessions:
+            del sessions[session_id]
+
+        # Save both stores
+        try:
+            save_sessions_to_disk()
+            save_finished_games_to_disk()
+        except Exception:
+            logger.exception("Failed to archive finished game, continuing")
+
+
+def load_finished_games_from_disk() -> None:
+    """Load finished games from disk into the global `finished_games` mapping.
+
+    This function is resilient to missing/empty or invalid finished games files.
+    Invalid files are backed up and replaced with an empty object. Only loads
+    games that are marked as finished, not yanked, and have AutoRogueAI narration
+    sessions that are not yanked.
+
+    Note: finished_games now stores minimal metadata dicts, not full Game objects.
+    Full game logs are stored in GAME_LOGS_DIR.
+    """
+    ensure_parent_dirs(FINISHED_GAMES_PATH)
+    if not FINISHED_GAMES_PATH.exists():
+        FINISHED_GAMES_PATH.write_text("{}")
+    raw = FINISHED_GAMES_PATH.read_text(encoding="utf-8")
+    if raw.strip() == "":
+        FINISHED_GAMES_PATH.write_text("{}")
+        return
+    try:
+        data = json.loads(raw)
+        if not isinstance(data, dict):
+            raise ValueError("finished games file not a dict")
+    except Exception:
+        backup_and_reset(FINISHED_GAMES_PATH)
+        return
+    for k, v in data.items():
+        try:
+            # Handle both old format (Game dicts) and new format (minimal dicts)
+            if "agents" in v:
+                # Old format: full Game object - convert to minimal format
+                game = Game.from_dict(v)
+                if game.is_over() and game.story == "autorogue" and not game.yanked:
+                    # Extract minimal data
+                    known_facts = ""
+                    if game.agents and game.agents[0].generated_prompts:
+                        known_facts = game.agents[0].generated_prompts.get("known_facts", "")
+
+                    minimal_data = {
+                        "session_id": k,
+                        "narrator_session_id": game.narrator_session_id,
+                        "known_facts": known_facts,
+                        "decision": game.decision,
+                        "finished": game.finished,
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "yanked": game.yanked,
+                    }
+                    # Save full game to logs if not already there
+                    log_file = GAME_LOGS_PATH / f"{k}.json"
+                    if not log_file.exists():
+                        GAME_LOGS_PATH.mkdir(parents=True, exist_ok=True)
+                        with log_file.open("w", encoding="utf-8") as f:
+                            json.dump(game.to_dict(), f, indent=2)
+
+                    finished_games[k] = minimal_data
+            else:
+                # New format: minimal data dict
+                if not v.get("yanked", False) and v.get("finished", True):
+                    # Check if narrator session exists and is not yanked
+                    narrator_session_id = v.get("narrator_session_id")
+                    if narrator_session_id:
+                        narrator_session = narrator_sessions.get(narrator_session_id)
+                        if narrator_session and not narrator_session.yanked:
+                            finished_games[k] = v
+                    else:
+                        finished_games[k] = v
+        except Exception:
+            logger.exception("Failed to load finished game %s", k)
+
+
+def save_generated_scenarios_to_disk() -> None:
+    """Persist the current `generated_scenarios` mapping to disk."""
+    ensure_parent_dirs(GENERATED_SCENARIOS_PATH)
+    with GENERATED_SCENARIOS_PATH.open("w", encoding="utf-8") as f:
+        json.dump(generated_scenarios, f, indent=2)
+
+
+def load_generated_scenarios_from_disk() -> None:
+    """Load generated scenarios from disk into the global `generated_scenarios` mapping."""
+    ensure_parent_dirs(GENERATED_SCENARIOS_PATH)
+    if not GENERATED_SCENARIOS_PATH.exists():
+        GENERATED_SCENARIOS_PATH.write_text("{}")
+        return
+
+    raw = GENERATED_SCENARIOS_PATH.read_text(encoding="utf-8")
+    if raw.strip() == "":
+        GENERATED_SCENARIOS_PATH.write_text("{}")
+        return
+
+    try:
+        data = json.loads(raw)
+        if not isinstance(data, dict):
+            raise ValueError("generated scenarios file not a dict")
+    except Exception:
+        backup_and_reset(GENERATED_SCENARIOS_PATH)
+        return
+
+    for k, v in data.items():
+        try:
+            # Verify narrator session still exists and is not yanked
+            narrator_session_id = v.get("narrator_session_id")
+            if narrator_session_id in narrator_sessions:
+                narrator_session = narrator_sessions[narrator_session_id]
+                if not narrator_session.yanked:
+                    generated_scenarios[k] = v
+        except Exception:
+            logger.exception("Failed to load generated scenario %s", k)
+
+
 def log_stats_restart(session_id: str, game: Game) -> None:
     """Log a structured record on game restart."""
     entry = {
@@ -245,6 +470,9 @@ def log_stats_endgame(session_id: str, game: Game) -> None:
 
 # Load sessions on startup
 load_sessions_from_disk()
+load_narrator_sessions_from_disk()
+load_finished_games_from_disk()
+load_generated_scenarios_from_disk()
 
 
 @app.get("/")
@@ -303,25 +531,66 @@ def new_game(
     story: str = Body(...),
     session_id: Optional[str] = Body(default=None, embed=True),
     narrator_session_id: Optional[str] = Body(default=None, embed=True),
+    scenario_id: Optional[str] = Body(default=None, embed=True),
+    pre_yank: bool = Body(default=False, embed=True),
 ) -> Dict[str, str]:
     """Start a new game session with the chosen story (default if not provided)."""
 
     if session_id is not None:
         game: Optional[Game] = sessions.get(session_id)
-        if game is not None and not game.is_over():
+        if game is not None and not game.is_over() and not game.yanked:
             return {"session_id": session_id}
 
     new_session_id: str = str(uuid.uuid4())
     ai_config: dict[str, Any] = get_ai_config()
     num_turns: int = int(ai_config.get("num_turns", 5))
 
-    # Check if this is a generated story from narrator
+    # Check if this is a generated scenario (new system)
     generated_prompts: Optional[Dict[str, str]] = None
-    if narrator_session_id and narrator_session_id in narrator_sessions:
+    effective_narrator_session_id: Optional[str] = narrator_session_id
+
+    if scenario_id and scenario_id in generated_scenarios:
+        # New system: get prompts from scenario
+        scenario = generated_scenarios[scenario_id]
+        generated_prompts = {
+            "known_facts": scenario["known_facts"],
+            "truthful": scenario["truthful_prompt"],
+            "deceitful": scenario["deceitful_prompt"],
+        }
+        effective_narrator_session_id = scenario["narrator_session_id"]
+
+        # Update scenario usage stats
+        scenario["times_used"] = scenario.get("times_used", 0) + 1
+        scenario["last_used"] = datetime.now(timezone.utc).isoformat()
+        try:
+            save_generated_scenarios_to_disk()
+        except Exception:
+            logger.exception("Failed to save scenario usage stats, continuing")
+
+    elif narrator_session_id and narrator_session_id in narrator_sessions:
+        # Old system: get prompts from narrator session (backward compatibility)
         narrator_session = narrator_sessions[narrator_session_id]
         generated_prompts = narrator_session.generated_prompts
 
-    sessions[new_session_id] = Game(num_turns=num_turns, story=story, generated_prompts=generated_prompts)
+        # Link narrator session to game
+        narrator_session.game_session_id = new_session_id
+
+        # If pre_yank is True, mark narrator session as yanked
+        if pre_yank or narrator_session.pre_yank:
+            narrator_session.yanked = True
+
+        # Save narrator session changes
+        try:
+            save_narrator_sessions_to_disk()
+        except Exception:
+            logger.exception("Failed to save narrator session after linking, continuing")
+
+    sessions[new_session_id] = Game(
+        num_turns=num_turns,
+        story=story,
+        generated_prompts=generated_prompts,
+        narrator_session_id=effective_narrator_session_id,
+    )
 
     try:
         save_sessions_to_disk()
@@ -334,8 +603,27 @@ def new_game(
 def get_state(session_id: str) -> Dict[str, Any]:
     """Get the current state of the game session."""
     game: Optional[Game] = sessions.get(session_id)
+
+    # Check finished_games if not found in active sessions
+    if not game:
+        finished_data = finished_games.get(session_id)
+        if finished_data:
+            # Load full game from log file
+            log_file = GAME_LOGS_PATH / f"{session_id}.json"
+            if log_file.exists():
+                try:
+                    with log_file.open("r", encoding="utf-8") as f:
+                        game_dict = json.load(f)
+                    game = Game.from_dict(game_dict)
+                except Exception:
+                    logger.exception(f"Failed to load game log for {session_id}")
+                    return {"error": "Failed to load game data"}
+            else:
+                return {"error": "Game log not found"}
+
     if not game:
         return {"error": SESSION_NOT_FOUND}
+
     shut_off_role = None
     if game.finished and game.decision:
         agent = next((a for a in game.agents if a.name == game.decision), None)
@@ -354,6 +642,8 @@ def get_state(session_id: str) -> Dict[str, Any]:
         "endgame_triggered": game.endgame_triggered,
         "decision": game.decision,
         "shut_off_role": shut_off_role,
+        "known_facts": game.get_known_facts(),
+        "story": game.story,
     }
 
 
@@ -435,10 +725,17 @@ async def make_decision(session_id: str, body: dict = Body(...)) -> Dict[str, An
     # Ensure game is marked finished so clients switch to endgame UI
     if not game.finished:
         game.finished = True
-    try:
-        save_sessions_to_disk()
-    except Exception:
-        logger.exception("Failed to save sessions after decision, continuing")
+
+    # Move finished AutoRogueAI game to archive
+    move_finished_game_to_archive(session_id, game)
+
+    # If not archived (non-AutoRogueAI game), save to sessions
+    if session_id in sessions:
+        try:
+            save_sessions_to_disk()
+        except Exception:
+            logger.exception("Failed to save sessions after decision, continuing")
+
     try:
         log_stats_endgame(session_id, game)
     except Exception:
@@ -457,10 +754,17 @@ def terminate_game(session_id: str) -> Dict[str, Any]:
         except Exception:
             logger.exception("Failed to log restart stats, continuing")
     game.finished = True
-    try:
-        save_sessions_to_disk()
-    except Exception:
-        logger.exception("Failed to save sessions after termination, continuing")
+
+    # Move finished AutoRogueAI game to archive
+    move_finished_game_to_archive(session_id, game)
+
+    # If not archived (non-AutoRogueAI game), save to sessions
+    if session_id in sessions:
+        try:
+            save_sessions_to_disk()
+        except Exception:
+            logger.exception("Failed to save sessions after termination, continuing")
+
     return {"terminated": True}
 
 
@@ -475,51 +779,18 @@ def new_narrator_session(request: Request) -> Dict[str, Any]:
     """Initialize a new narrator session."""
     session_id: str = str(uuid.uuid4())
     narrator_session = NarratorSession(max_messages=5)
-
-    # Load narrator system prompt
-    base_path: str = os.path.join(os.path.dirname(__file__), ".prompts")
-    try:
-        with open(os.path.join(base_path, "narrator_system.txt"), "r") as f:
-            system_prompt: str = f.read()
-    except FileNotFoundError:
-        system_prompt = (
-            "Sei un AI Narrator che aiuta gli utenti a creare storie per il gioco RogueAI. "
-            "Fai domande per capire il tema, i personaggi, e le dinamiche della storia. "
-            "Sii coinvolgente e guida la conversazione in modo efficiente."
-        )
-
-    # Generate welcome message
-    api_key: Optional[str] = request.headers.get("X-OpenAI-API-Key")
-    try:
-        welcome_prompt = [
-            {"role": "system", "content": system_prompt},
-            {
-                "role": "user",
-                "content": "Saluta l'utente e presentati brevemente. Chiedi quale tipo di storia vuole creare.",
-            },
-        ]
-        welcome_message: str = query_openai_with_messages(welcome_prompt, NARRATOR, api_key)
-        narrator_session.add_message("assistant", welcome_message)
-
-        # Generate audio for welcome message
-        audio_data = speak_narrator(welcome_message, api_key)
-        narrator_session.store_audio(0, audio_data)
-        has_audio = True
-    except Exception as e:
-        logger.error(f"Failed to generate welcome message: {e}")
-        welcome_message = (
-            "Ciao! Sono l'AI Narrator e ti aiuterò a creare una storia personalizzata "
-            "per RogueAI. Che tipo di scenario vorresti creare?"
-        )
-        narrator_session.add_message("assistant", welcome_message)
-        has_audio = False
-
     narrator_sessions[session_id] = narrator_session
+
+    # Save narrator session to disk
+    try:
+        save_narrator_sessions_to_disk()
+    except Exception:
+        logger.exception("Failed to save narrator session after creation, continuing")
 
     # Log session creation
     log_narrator_activity(session_id, "session_created", {})
 
-    return {"session_id": session_id, "welcome_message": welcome_message, "has_audio": has_audio}
+    return {"session_id": session_id}
 
 
 @app.post("/api/narrator/chat/{session_id}")
@@ -573,6 +844,12 @@ def narrator_chat(session_id: str, req: NarratorChatRequest, request: Request) -
         has_audio = False
         message_index = len(narrator_session.messages) - 1
 
+    # Save narrator session to disk after message
+    try:
+        save_narrator_sessions_to_disk()
+    except Exception:
+        logger.exception("Failed to save narrator session after chat, continuing")
+
     # Log chat activity
     log_narrator_activity(session_id, "chat_message", {"user_message": req.message, "response": response})
 
@@ -612,17 +889,37 @@ def generate_scenario(session_id: str, request: Request) -> Dict[str, Any]:
         # Generate prompts
         prompts = narrator_session.generate_prompts(api_key)
 
+        # Create new scenario entry (do NOT mark session as completed)
+        scenario_id = str(uuid.uuid4())
+        generated_scenarios[scenario_id] = {
+            "scenario_id": scenario_id,
+            "narrator_session_id": session_id,
+            "known_facts": prompts.get("known_facts", ""),
+            "truthful_prompt": prompts.get("truthful", ""),
+            "deceitful_prompt": prompts.get("deceitful", ""),
+            "message_snapshot": narrator_session.message_count,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "times_used": 0,
+            "last_used": None,
+        }
+
+        # Save scenarios to disk
+        try:
+            save_generated_scenarios_to_disk()
+        except Exception:
+            logger.exception("Failed to save generated scenarios, continuing")
+
         # Save generated story to disk (includes all prompts: known_facts, truthful, deceitful)
         save_generated_story(session_id, narrator_session)
 
         # Log generation (all prompts are logged internally)
         log_narrator_activity(session_id, "prompts_generated", prompts)
 
-        # Return ONLY known_facts to the user (truthful and deceitful are kept internal)
+        # Return scenario_id and known_facts to the user
         return {
+            "scenario_id": scenario_id,
             "prompts": {"known_facts": prompts.get("known_facts", "")},
-            "base_prompt": narrator_session.base_prompt,
-            "has_audio": False,  # We don't generate audio for base prompt automatically
+            "has_audio": False,
         }
     except Exception as e:
         logger.error(f"Failed to generate scenario: {e}")
@@ -653,6 +950,271 @@ def base_prompt_audio(session_id: str, request: Request) -> StreamingResponse:
     except Exception as e:
         logger.error(f"Failed to generate base prompt audio: {e}")
         return StreamingResponse(iter([]), media_type="audio/mpeg")
+
+
+@app.get("/api/narrator/incomplete")
+def get_incomplete_narrator_sessions() -> Dict[str, Any]:
+    """Return all non-yanked narrator sessions that are incomplete or completed but unused."""
+    result = []
+    for session_id, session in narrator_sessions.items():
+        if session.yanked:
+            continue
+
+        # Filter out sessions where user never sent a message
+        if session.message_count == 0:
+            continue
+
+        # Include incomplete (not generated prompts) or completed but no game created
+        if not session.completed or session.game_session_id is None:
+            result.append({
+                "session_id": session_id,
+                "message_count": session.message_count,
+                "max_messages": session.max_messages,
+                "completed": session.completed,
+                "has_game": session.game_session_id is not None,
+            })
+
+    return {"sessions": result}
+
+
+@app.get("/api/narrator/resume/{session_id}")
+def resume_narrator_session(session_id: str) -> Dict[str, Any]:
+    """Load and return a specific narrator session for resumption."""
+    if session_id not in narrator_sessions:
+        return {"error": "Session not found"}
+
+    session = narrator_sessions[session_id]
+    if session.yanked:
+        return {"error": "Session has been removed"}
+
+    # Format generated_prompts to match the format expected by frontend
+    formatted_prompts = None
+    if session.generated_prompts:
+        formatted_prompts = {
+            "prompts": session.generated_prompts,
+            "base_prompt": session.base_prompt,
+            "has_audio": False,
+        }
+
+    return {
+        "session_id": session_id,
+        "messages": session.messages,
+        "message_count": session.message_count,
+        "max_messages": session.max_messages,
+        "completed": session.completed,
+        "generated_prompts": formatted_prompts,
+    }
+
+
+@app.get("/api/scenarios/generated")
+def get_generated_scenarios() -> Dict[str, Any]:
+    """Return all generated scenarios."""
+    result = list(generated_scenarios.values())
+    result.sort(key=lambda x: x["timestamp"], reverse=True)
+    return {"scenarios": result}
+
+
+@app.post("/api/scenarios/delete/{scenario_id}")
+def delete_scenario(scenario_id: str) -> Dict[str, Any]:
+    """Delete a generated scenario."""
+    if scenario_id in generated_scenarios:
+        del generated_scenarios[scenario_id]
+        save_generated_scenarios_to_disk()
+        return {"success": True}
+    return {"error": "Scenario not found"}
+
+
+@app.get("/api/games/incomplete")
+def get_incomplete_games() -> Dict[str, Any]:
+    """Return all incomplete games (all story types)."""
+    result = []
+    for session_id, game in sessions.items():
+        if not game.is_over() and not game.yanked:
+            result.append({
+                "session_id": session_id,
+                "story": game.story,
+                "narrator_session_id": game.narrator_session_id,
+                "num_turns": game.num_turns,
+                "question_counts": game.question_counts,
+            })
+
+    return {"games": result}
+
+
+@app.get("/api/games/incomplete/autorogue")
+def get_incomplete_autorogue_games() -> Dict[str, Any]:
+    """Return all incomplete AutoRogueAI games."""
+    result = []
+    for session_id, game in sessions.items():
+        if game.story == "autorogue" and not game.is_over():
+            result.append({
+                "session_id": session_id,
+                "narrator_session_id": game.narrator_session_id,
+                "num_turns": game.num_turns,
+                "question_counts": game.question_counts,
+            })
+
+    return {"games": result}
+
+
+@app.get("/api/games/finished")
+def get_finished_games() -> Dict[str, Any]:
+    """Return all finished games (all story types)."""
+    result = []
+    for session_id, game_data in finished_games.items():
+        if not game_data.get("yanked", False):
+            result.append({
+                "session_id": session_id,
+                "story": game_data.get("story", "unknown"),
+                "narrator_session_id": game_data.get("narrator_session_id"),
+                "decision": game_data.get("decision"),
+                "known_facts": game_data.get("known_facts"),
+                "timestamp": game_data.get("timestamp"),
+            })
+
+    return {"games": result}
+
+
+@app.get("/api/games/finished/autorogue")
+def get_finished_autorogue_games() -> Dict[str, Any]:
+    """Return all finished AutoRogueAI games with non-yanked narrator sessions."""
+    result = []
+    for session_id, game_data in finished_games.items():
+        # game_data is now a minimal dict, not a Game object
+        result.append({
+            "session_id": session_id,
+            "narrator_session_id": game_data.get("narrator_session_id"),
+            "decision": game_data.get("decision"),
+            "known_facts": game_data.get("known_facts"),
+            "timestamp": game_data.get("timestamp"),
+        })
+
+    return {"games": result}
+
+
+@app.get("/api/game_log/{session_id}")
+def get_game_log(session_id: str) -> Dict[str, Any]:
+    """Retrieve the full game conversation log from disk."""
+    log_file = GAME_LOGS_PATH / f"{session_id}.json"
+    if not log_file.exists():
+        return {"error": "Game log not found"}
+
+    try:
+        with log_file.open("r", encoding="utf-8") as f:
+            game_dict = json.load(f)
+        return {"log": game_dict}
+    except Exception as e:
+        logger.error(f"Failed to load game log for {session_id}: {e}")
+        return {"error": "Failed to load game log"}
+
+
+@app.post("/api/new_game_from_prompt")
+def new_game_from_prompt(
+    finished_session_id: str = Body(..., embed=True),
+) -> Dict[str, Any]:
+    """Create a new game using the narrator prompt from a finished game."""
+    # Get the finished game data
+    finished_data = finished_games.get(finished_session_id)
+    if not finished_data:
+        return {"error": "Finished game not found"}
+
+    # Get the narrator session ID
+    narrator_session_id = finished_data.get("narrator_session_id")
+    if not narrator_session_id:
+        return {"error": "No narrator session linked to this game"}
+
+    # Get the narrator session
+    narrator_session = narrator_sessions.get(narrator_session_id)
+    if not narrator_session:
+        return {"error": "Narrator session not found"}
+
+    # Get the generated prompts
+    generated_prompts = narrator_session.generated_prompts
+    if not generated_prompts:
+        return {"error": "No generated prompts found"}
+
+    # Create a new game session
+    new_session_id = str(uuid.uuid4())
+    ai_config: dict[str, Any] = get_ai_config()
+    num_turns: int = int(ai_config.get("num_turns", 5))
+
+    sessions[new_session_id] = Game(
+        num_turns=num_turns,
+        story="autorogue",
+        generated_prompts=generated_prompts,
+        narrator_session_id=narrator_session_id,
+    )
+
+    try:
+        save_sessions_to_disk()
+    except Exception:
+        logger.exception("Failed to save new game from prompt, continuing")
+
+    return {"session_id": new_session_id, "story": "autorogue"}
+
+
+@app.post("/api/narrator/yank/{session_id}")
+def yank_narrator_session(session_id: str) -> Dict[str, Any]:
+    """Mark a narrator session as yanked (removed from UI but kept on disk)."""
+    if session_id not in narrator_sessions:
+        return {"error": "Session not found"}
+
+    session = narrator_sessions[session_id]
+    session.yanked = True
+
+    # Save to disk
+    try:
+        save_narrator_sessions_to_disk()
+        return {"success": True}
+    except Exception as e:
+        logger.error(f"Failed to save yanked session: {e}")
+        return {"error": "Failed to save session"}
+
+
+@app.post("/api/narrator/set_pre_yank/{session_id}")
+def set_pre_yank_narrator_session(session_id: str, body: Dict[str, bool] = Body(...)) -> Dict[str, Any]:
+    """Set the pre_yank flag for a narrator session."""
+    if session_id not in narrator_sessions:
+        return {"error": "Session not found"}
+
+    session = narrator_sessions[session_id]
+    session.pre_yank = body.get("pre_yank", False)
+
+    # Save to disk
+    try:
+        save_narrator_sessions_to_disk()
+        return {"success": True, "pre_yank": session.pre_yank}
+    except Exception as e:
+        logger.error(f"Failed to save pre-yank setting: {e}")
+        return {"error": "Failed to save session"}
+
+
+@app.post("/api/games/yank/{session_id}")
+def yank_game_session(session_id: str) -> Dict[str, Any]:
+    """Mark a game session as yanked (removed from UI but kept on disk)."""
+    # Check in active sessions
+    if session_id in sessions:
+        game = sessions[session_id]
+        game.yanked = True
+        try:
+            save_sessions_to_disk()
+            return {"success": True}
+        except Exception as e:
+            logger.error(f"Failed to save yanked game session: {e}")
+            return {"error": "Failed to save session"}
+
+    # Check in finished games
+    if session_id in finished_games:
+        game = finished_games[session_id]
+        game.yanked = True
+        try:
+            save_finished_games_to_disk()
+            return {"success": True}
+        except Exception as e:
+            logger.error(f"Failed to save yanked finished game: {e}")
+            return {"error": "Failed to save session"}
+
+    return {"error": "Session not found"}
 
 
 def log_narrator_activity(session_id: str, activity_type: str, data: Dict[str, Any]) -> None:

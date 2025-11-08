@@ -28,28 +28,33 @@
                 <div class="input-container">
                     <textarea
                         id="user-input"
-                        placeholder="Descrivi la storia che vuoi creare..."
+                        placeholder="Caricamento in corso..."
                         rows="3"
                         maxlength="1000"
+                        disabled
                     ></textarea>
-                    <button id="send-btn" class="btn-send">Invia</button>
+                    <button id="send-btn" class="btn-send" disabled>Invia</button>
                 </div>
 
                 <!-- Action Buttons -->
                 <div class="action-buttons">
                     <button id="back-btn" class="btn-secondary">🔙 Torna Indietro / Reset</button>
-                    <button id="generate-btn" class="btn-primary" disabled>✨ Genera Scenario</button>
+                    <button id="generate-btn" class="btn-primary">✨ Genera Scenario</button>
+                    <button id="send-generate-btn" class="btn-primary" disabled style="display: none">
+                        📤 Invia e Genera
+                    </button>
                 </div>
 
-                <!-- Generation Result Area (hidden initially) -->
-                <div id="generation-result" class="generation-result" style="display: none">
-                    <h2>📜 Scenario Generato</h2>
-                    <div class="generated-prompts-section">
-                        <h3>Fatti Conosciuti</h3>
-                        <div id="generated-prompts-text" class="prompt-text"></div>
-                        <button id="read-base-prompt-btn" class="btn-audio">🔊 Leggi Scenario</button>
+                <!-- Generated Scenarios List -->
+                <div id="scenarios-list" class="scenarios-list" style="display: none">
+                    <h2>📜 Scenari Generati</h2>
+                    <p class="scenarios-hint">
+                        Hai generato i seguenti scenari. Puoi avviare un gioco da qualsiasi scenario, e ogni scenario
+                        può essere riutilizzato più volte.
+                    </p>
+                    <div id="scenarios-container" class="scenarios-container">
+                        <!-- Scenarios will be dynamically added here -->
                     </div>
-                    <button id="start-game-btn" class="btn-primary btn-large">🎮 Inizia il Gioco</button>
                 </div>
             </div>
         </div>

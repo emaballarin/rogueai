@@ -86,7 +86,7 @@ clfmt: format clean
 runapp:
     @./start_app.sh
 
-# Clean sessions and stats
+# Clean sessions, stats, and generated stories
 cleanup:
     @cd ./scripts/ && ./clean_sessions_and_stats.sh
 

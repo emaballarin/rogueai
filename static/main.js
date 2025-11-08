@@ -166,7 +166,9 @@ async function newGame() {
         const params = new URLSearchParams(window.location.search);
 
         const story = params.get("story"); // || 'classic';
-        const narratorSessionId = params.get("narrator_session"); // For generated stories
+        const narratorSessionId = params.get("narrator_session"); // For generated stories (legacy)
+        const scenarioId = params.get("scenario_id"); // For generated scenarios (new system)
+        const preYank = params.get("pre_yank") === "true"; // Read pre_yank parameter
 
         const headers = { "Content-Type": "application/json" };
         const apiKey = getApiKey();
@@ -177,9 +179,18 @@ async function newGame() {
             story: story,
         };
 
-        // Add narrator_session_id if this is a generated story
-        if (narratorSessionId) {
+        // Add scenario_id if this is from a generated scenario (new system)
+        if (scenarioId) {
+            requestBody.scenario_id = scenarioId;
+        }
+        // Add narrator_session_id if this is a generated story (legacy support)
+        else if (narratorSessionId) {
             requestBody.narrator_session_id = narratorSessionId;
+        }
+
+        // Add pre_yank if enabled
+        if (preYank) {
+            requestBody.pre_yank = true;
         }
 
         const res = await fetch("/api/new_game", {
@@ -195,7 +206,9 @@ async function newGame() {
         localStorage.setItem("sessionId", sessionId);
 
         console.log("Game started with story:", story, "sessionId:", sessionId);
-        if (narratorSessionId) {
+        if (scenarioId) {
+            console.log("Using generated scenario:", scenarioId);
+        } else if (narratorSessionId) {
             console.log("Using generated prompts from narrator session:", narratorSessionId);
         }
 
@@ -659,6 +672,20 @@ function renderWithLocalHistory(localHistories, animateForAi = null, preserveFoc
     }
 
     if (!state) return;
+
+    // Display scenario context if available (for narrator-generated games)
+    if (state.known_facts && state.story === "autorogue") {
+        const scenarioPanel = document.createElement("div");
+        scenarioPanel.className = "scenario-context-panel";
+        scenarioPanel.innerHTML = `
+            <div class="scenario-header">
+                <strong>📜 Scenario Context</strong>
+                <button class="scenario-toggle" onclick="this.parentElement.parentElement.classList.toggle('collapsed')">▼</button>
+            </div>
+            <div class="scenario-text">${state.known_facts}</div>
+        `;
+        app.appendChild(scenarioPanel);
+    }
 
     // Columns container
     const cols = document.createElement("div");
