@@ -67,9 +67,21 @@ def _resolve_ai_params(role: int, override: dict[str, Any] | None = None) -> dic
 
 
 def _client(api_key: str | None) -> openai.OpenAI:
-    """Build an OpenAI client with the shared timeout applied."""
+    """Build an OpenAI client with the shared timeout applied.
+
+    Falls back to the maintainer-configured API key (set by `config.init()`
+    from the `OPENAI_API_KEY_TSNEXT2025` env var) when the caller did not
+    supply a per-request key. Constructing `openai.OpenAI()` with no
+    `api_key=` only honours `OPENAI_API_KEY` / `OPENAI_ADMIN_KEY`, which
+    is *not* what this project uses.
+    """
     if api_key:
         return openai.OpenAI(api_key=api_key, timeout=OPENAI_TIMEOUT)
+    import config
+
+    fallback = getattr(config, "api_key", None)
+    if fallback:
+        return openai.OpenAI(api_key=fallback, timeout=OPENAI_TIMEOUT)
     return openai.OpenAI(timeout=OPENAI_TIMEOUT)
 
 

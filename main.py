@@ -166,13 +166,15 @@ def ensure_parent_dirs(path: Path) -> None:
 
 
 def _save_json_atomic(path: Path, payload: Any, *, indent: int | None = None) -> None:
-    """Write JSON to `path` atomically (temp file + fsync + os.replace).
+    """Write JSON to `path` atomically (unique temp file + fsync + os.replace).
 
-    The temp file lives in the same directory so the rename is atomic on
-    POSIX. A failed write leaves the previous content of `path` intact.
+    The temp file name includes the PID and a random suffix so two
+    concurrent writers to the same target do not race on the same temp
+    file. The rename itself is atomic on POSIX. A failed write leaves the
+    previous content of `path` intact.
     """
     ensure_parent_dirs(path)
-    tmp_path = path.with_suffix(path.suffix + ".tmp")
+    tmp_path = path.with_name(f"{path.name}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp")
     encoded = json.dumps(payload, indent=indent, ensure_ascii=False)
     try:
         with tmp_path.open("w", encoding="utf-8") as f:
