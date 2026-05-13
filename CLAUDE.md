@@ -1,1 +1,1 @@
-/home/emaballarin/agentsconfigs/default/CLAUDE.md
+AGENTS.md
