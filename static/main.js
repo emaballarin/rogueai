@@ -223,13 +223,42 @@ async function newGame() {
 async function fetchState() {
     try {
         const res = await fetch(`/api/state/${sessionId}`);
+        if (res.status === 404 || res.status === 410) {
+            handleStaleSession();
+            return;
+        }
         if (!res.ok) throw new Error("Failed to fetch game state.");
-        state = await res.json();
+        const payload = await res.json();
+        // Server returns 200 with {error: "Session not found"} on missing-session.
+        if (payload && payload.error === "Session not found") {
+            handleStaleSession();
+            return;
+        }
+        state = payload;
         render();
     } catch (err) {
         console.error("Could not fetch game state. Please refresh the page.", err);
     }
 }
+
+/* Called when the server reports our cached sessionId is gone. */
+function handleStaleSession() {
+    try {
+        localStorage.removeItem("sessionId");
+    } catch (e) {}
+    sessionId = null;
+    state = null;
+    showError("La sessione precedente è scaduta. Torno alla pagina iniziale.");
+    setTimeout(() => {
+        window.location.href = "/";
+    }, 1500);
+}
+
+/* Per-agent in-flight guard: prevents a rapid second click from sending
+ * a duplicate /api/ask call before the first has resolved. Without this
+ * the server can consume two question-budget slots for one intended
+ * action. */
+const inFlightAgents = new Set();
 
 /* Send a question to an AI */
 async function askQuestionFor(ai, providedQuestion = null) {
@@ -242,6 +271,8 @@ async function askQuestionFor(ai, providedQuestion = null) {
         question = inputEl.textContent.trim();
     }
     if (!question) return;
+    if (inFlightAgents.has(ai)) return;
+    inFlightAgents.add(ai);
 
     // Check for Easter egg words in user input
     checkEasterEggWords(question);
@@ -325,6 +356,7 @@ async function askQuestionFor(ai, providedQuestion = null) {
         console.error("Could not send question.", err);
     } finally {
         if (inputElAfter) inputElAfter.removeAttribute("data-busy");
+        inFlightAgents.delete(ai);
     }
 }
 
@@ -419,10 +451,17 @@ function stopAllAudio() {
 }
 
 // Ensure audio stops on page unload (reload/close)
-window.addEventListener("beforeunload", () => {
+window.addEventListener("beforeunload", (e) => {
     try {
         stopAllAudio();
-    } catch (e) {}
+    } catch (err) {}
+    // Warn if the player would lose mid-game progress. The actual prompt
+    // text is browser-controlled; we only need to signal that we want one.
+    if (state && state.finished === false) {
+        e.preventDefault();
+        e.returnValue = "";
+        return "";
+    }
 });
 
 /* Shut off an AI */
@@ -1202,7 +1241,31 @@ function render() {
 function startApp() {
     if (appStarted) return;
     appStarted = true;
+    setupSessionFooter();
     newGame();
+}
+
+/* Surface the active session id in the footer + wire up copy-to-clipboard. */
+function setupSessionFooter() {
+    const idEl = document.getElementById("session-footer-id");
+    const btn = document.getElementById("session-footer-copy");
+    if (!idEl || !btn) return;
+    const renderId = () => {
+        idEl.textContent = sessionId || "—";
+    };
+    renderId();
+    // poll every 750ms in case sessionId is assigned after newGame() resolves
+    setInterval(renderId, 750);
+    btn.addEventListener("click", async () => {
+        if (!sessionId) return;
+        try {
+            await navigator.clipboard.writeText(sessionId);
+            btn.textContent = "✅";
+            setTimeout(() => (btn.textContent = "📋"), 1200);
+        } catch (e) {
+            console.warn("clipboard copy failed", e);
+        }
+    });
 }
 
 /* Start the app when DOM is ready */

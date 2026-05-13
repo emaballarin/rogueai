@@ -804,3 +804,44 @@ body {
         font-size: 2.5rem;
     }
 }
+
+/* --- Session ID footer (added by code-review pass) --- */
+.session-footer {
+    position: fixed;
+    bottom: 0.5rem;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 50;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.25rem 0.5rem;
+    background: rgba(0, 0, 0, 0.55);
+    color: var(--muted-2, #aaa);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+    font-size: 0.72rem;
+    border-radius: 0.4rem;
+    pointer-events: auto;
+    opacity: 0.55;
+    transition: opacity 0.15s ease-in-out;
+}
+.session-footer:hover {
+    opacity: 1;
+}
+.session-footer code {
+    color: inherit;
+    background: transparent;
+    user-select: all;
+}
+.session-footer button {
+    background: transparent;
+    border: none;
+    color: inherit;
+    cursor: pointer;
+    font-size: 0.9rem;
+    padding: 0.1rem 0.3rem;
+    line-height: 1;
+}
+.session-footer button:hover {
+    opacity: 0.8;
+}

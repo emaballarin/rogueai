@@ -10,6 +10,13 @@
 
     <body>
         <div id="app"></div>
+        <!-- Session ID footer: surfaces the current session id so a player can
+             share it with support without opening devtools. -->
+        <div id="session-footer" class="session-footer" aria-live="polite">
+            <span class="session-footer-label">Sessione:</span>
+            <code id="session-footer-id">—</code>
+            <button id="session-footer-copy" type="button" title="Copia ID sessione">📋</button>
+        </div>
         <script src="/static/main.js"></script>
     </body>
 </html>

@@ -444,7 +444,9 @@ h1 {
 
 .resume-item {
     background-color: var(--bg-page);
-    padding: 15px;
+    /* reserve right-side space for the absolutely-positioned yank button so
+       long resume-item text never wraps under or overlaps the trash icon */
+    padding: 15px 56px 15px 15px;
     margin-bottom: 10px;
     border-radius: 8px;
     cursor: pointer;

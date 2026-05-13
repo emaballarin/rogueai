@@ -467,19 +467,13 @@
                 modalBody.appendChild(cancelBtn);
             }
 
-            // Make stories clickable immediately when DOM is ready (don't wait for images)
+            // Make stories clickable immediately when DOM is ready (don't wait for images).
+            // The inline `onclick="..."` attribute on each .story tile fires natively;
+            // we only need to set the cursor here.
             document.addEventListener("DOMContentLoaded", function () {
                 const stories = document.querySelectorAll(".story");
                 stories.forEach((story) => {
                     story.style.cursor = "pointer";
-                    // Ensure the click handler is active immediately
-                    story.addEventListener("click", function () {
-                        const onclick = this.getAttribute("onclick");
-                        if (onclick) {
-                            // Execute the onclick code
-                            eval(onclick);
-                        }
-                    });
                 });
 
                 // Initialize API key button state

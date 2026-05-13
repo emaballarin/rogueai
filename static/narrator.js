@@ -555,27 +555,68 @@ function render() {
     }
 }
 
-/* Show error message */
-function showError(message) {
-    // Simple alert for now
-    alert(`❌ ${message}`);
+/* Non-blocking toast notifications. Replaces the previous use of
+ * alert(), which froze the entire UI until the user clicked OK. */
+function _ensureToastContainer() {
+    let c = document.getElementById("toast-container");
+    if (c) return c;
+    c = document.createElement("div");
+    c.id = "toast-container";
+    c.setAttribute("aria-live", "polite");
+    c.style.cssText =
+        "position:fixed;top:1rem;left:50%;transform:translateX(-50%);" +
+        "z-index:2000;display:flex;flex-direction:column;gap:0.5rem;" +
+        "pointer-events:none;max-width:90vw;";
+    document.body.appendChild(c);
+    return c;
 }
 
-/* Show info message */
+function _showToast(message, variant, ttlMs) {
+    const c = _ensureToastContainer();
+    const t = document.createElement("div");
+    const palette = {
+        error: { bg: "#7a1c1c", fg: "#ffffff" },
+        success: { bg: "#1c4a1c", fg: "#ffffff" },
+        info: { bg: "#1c3a5a", fg: "#ffffff" },
+    }[variant] || { bg: "#222", fg: "#fff" };
+    t.style.cssText =
+        `background:${palette.bg};color:${palette.fg};` +
+        "padding:0.75rem 1rem;border-radius:0.5rem;" +
+        "box-shadow:0 4px 12px rgba(0,0,0,0.35);font-size:0.95rem;" +
+        "pointer-events:auto;cursor:pointer;max-width:100%;" +
+        "word-break:break-word;";
+    t.textContent = message;
+    t.addEventListener("click", () => t.remove());
+    c.appendChild(t);
+    if (ttlMs !== 0) {
+        setTimeout(() => {
+            try {
+                t.remove();
+            } catch (e) {}
+        }, ttlMs || 4500);
+    }
+}
+
+/* Show error message (non-blocking toast). */
+function showError(message) {
+    _showToast(`❌ ${message}`, "error", 6000);
+}
+
+/* Show info message (non-blocking toast). */
 function showInfo(message) {
-    // You could implement a toast notification here
+    _showToast(message, "info", 3500);
     console.info(message);
 }
 
-/* Show success message */
+/* Show success message (non-blocking toast). */
 function showSuccess(message) {
-    // Simple alert for now
-    alert(message);
+    _showToast(message, "success", 4500);
 }
 
-/* Clear info message */
+/* Clear info message: dismiss any active toasts. */
 function clearInfo() {
-    // Clear any info notifications
+    const c = document.getElementById("toast-container");
+    if (c) c.replaceChildren();
 }
 
 /* Toggle API Key modal */
@@ -671,8 +712,31 @@ function renderApiKeyModal() {
     modalBody.appendChild(cancelBtn);
 }
 
+/* Surface the active narrator session id in the footer. Wired up at DOMContentLoaded. */
+function setupSessionFooter() {
+    const idEl = document.getElementById("session-footer-id");
+    const btn = document.getElementById("session-footer-copy");
+    if (!idEl || !btn) return;
+    const renderId = () => {
+        idEl.textContent = sessionId || "—";
+    };
+    renderId();
+    setInterval(renderId, 750);
+    btn.addEventListener("click", async () => {
+        if (!sessionId) return;
+        try {
+            await navigator.clipboard.writeText(sessionId);
+            btn.textContent = "✅";
+            setTimeout(() => (btn.textContent = "📋"), 1200);
+        } catch (e) {
+            console.warn("clipboard copy failed", e);
+        }
+    });
+}
+
 /* Event listeners */
 document.addEventListener("DOMContentLoaded", () => {
+    setupSessionFooter();
     // Initialize TTS state
     initTTSState();
 

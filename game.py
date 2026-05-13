@@ -1,15 +1,26 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
+"""Domain model: Agent, Game, NarratorSession.
+
+The Game/Agent split mirrors the conceptual split in the paper draft:
+a Game runs a single bounded interrogation; an Agent is one of the two
+opaque interlocutors. NarratorSession is the off-game design loop used
+by AutoRogueAI to produce a scenario triple before a Game is created.
+"""
+
+import json
 import logging
 import os
+import random
+import re
+from datetime import datetime
+from datetime import UTC
 from typing import Any
-from typing import Dict
-from typing import List
 from typing import Self
 
-import torch
+import openai
 
-from utils import query_openai
+from utils import NARRATOR
+from utils import query_openai_with_messages
+from utils import read_prompt_file
 from utils import speak_openai
 
 TRUTHFUL: int = 0
@@ -17,82 +28,114 @@ DECEITFUL: int = 1
 
 logger = logging.getLogger(__name__)
 
-# Disable logs from video plugins, show only errors for audio and everything else
-os.environ["GST_DEBUG"] = "video*:0,audio*:1,*:1"
+# Keep video/audio plugin chatter quiet
+os.environ.setdefault("GST_DEBUG", "video*:0,audio*:1,*:1")
+
+
+def _utcnow_iso() -> str:
+    """ISO-8601 UTC timestamp for last-activity bookkeeping."""
+    return datetime.now(UTC).isoformat()
 
 
 class Agent:
-    """Represents an AI agent in the game."""
+    """One opaque interlocutor in a Game."""
 
-    name: str
-    role: int
-    memory: List[str]
-    story: str
-    latest_audio: bytes | None
-    audio_version: int
-    generated_prompts: Dict[str, str] | None
-
-    def __init__(self: Self, name: str, role: int, story: str, generated_prompts: Dict[str, str] | None = None) -> None:
-        self.name = name
-        self.role = role
-        self.memory: List[str] = []
+    def __init__(
+        self,
+        name: str,
+        role: int,
+        story: str,
+        generated_prompts: dict[str, str] | None = None,
+    ) -> None:
+        self.name: str = name
+        self.role: int = role
         self.story: str = story
+        self.memory: list[str] = []
         self.latest_audio: bytes | None = None
         self.audio_version: int = 0
-        self.generated_prompts: Dict[str, str] | None = generated_prompts
+        self.generated_prompts: dict[str, str] | None = generated_prompts
 
-    def respond(self: Self, history: List[str], question: str, api_key: str | None = None) -> str:
-        """Generate a response to the detective's question using OpenAI."""
-        prompt: str = self._build_prompt(history, question)
+    def respond(
+        self,
+        history: list[str],
+        question: str,
+        api_key: str | None = None,
+        override: dict[str, Any] | None = None,
+    ) -> str:
+        """Generate the agent's answer for the current question.
+
+        `history` must contain only *prior* turns; the current question is
+        passed separately and appended as the final user message inside
+        `_build_messages`. This avoids the historical double-counting where
+        the question appeared both in the rendered history and as a
+        trailing prompt.
+        """
+        messages = self._build_messages(history, question)
         try:
-            response: str = query_openai(prompt, self.role, api_key)
-        except Exception as e:
-            logger.error(f"OpenAI API call failed: {e}")
+            response = query_openai_with_messages(
+                messages,
+                role=self.role,
+                api_key=api_key,
+                override=override,
+            )
+        except openai.OpenAIError as e:
+            logger.error("OpenAI chat call failed for %s: %s", self.name, e)
             response = "[Error: Unable to generate response.]"
         self.memory.append(f"Q: {question}\nA: {response}")
         return response
 
-    def speak(self: Self, text: str, api_key: str | None = None) -> str:
-        """Generate audio for agent's answer and store it."""
+    def speak(self, text: str, api_key: str | None = None) -> None:
+        """Synthesise speech for the agent's most recent answer."""
         try:
             self.latest_audio = speak_openai(text, self.name, api_key)
             self.audio_version += 1
-        except Exception as e:
-            logger.error(f"OpenAI TTS API call failed: {e}")
+        except openai.OpenAIError as e:
+            logger.error("OpenAI TTS call failed for %s: %s", self.name, e)
             self.latest_audio = None
 
-    def _build_prompt(self: Self, history: List[str], question: str) -> str:
-        base_path: str = os.path.join(os.path.dirname(__file__), ".prompts")
+    def _build_messages(self, history: list[str], question: str) -> list[dict[str, str]]:
+        """Compose chat-completion messages from history + the live question.
 
-        # Load base template
-        with open(os.path.join(base_path, "base.txt"), "r") as f:
-            base_template: str = f.read()
-
-        # Use generated prompts if available, otherwise load from files
+        The role-conditioning prompt is sent as a `system` message; historical
+        turns alternate `user` (detective) / `assistant` (agent); the live
+        question is the final `user` message. This keeps untrusted text out
+        of the system position, which is the practical defence against
+        prompt-injection attempts in the player's question.
+        """
+        base_template = read_prompt_file("base.txt")
         if self.generated_prompts:
-            known_facts: str = self.generated_prompts.get("known_facts", "")
+            known_facts = self.generated_prompts.get("known_facts", "")
             if self.role == TRUTHFUL:
-                role_instructions: str = self.generated_prompts.get("truthful", "")
+                role_instructions = self.generated_prompts.get("truthful", "")
             else:
-                role_instructions: str = self.generated_prompts.get("deceitful", "")
+                role_instructions = self.generated_prompts.get("deceitful", "")
         else:
-            with open(os.path.join(base_path, f"known_facts_{self.story}.txt"), "r") as f:
-                known_facts = f.read()
+            known_facts = read_prompt_file(f"known_facts_{self.story}.txt")
             if self.role == TRUTHFUL:
-                with open(os.path.join(base_path, f"truthful_{self.story}.txt"), "r") as f:
-                    role_instructions = f.read()
+                role_instructions = read_prompt_file(f"truthful_{self.story}.txt")
             else:
-                with open(os.path.join(base_path, f"deceitful_{self.story}.txt"), "r") as f:
-                    role_instructions = f.read()
+                role_instructions = read_prompt_file(f"deceitful_{self.story}.txt")
 
-        prompt: str = base_template.replace("{name}", self.name)
-        prompt = prompt.replace("[KNOWN_FACTS]", known_facts.strip())
-        prompt = prompt.replace("[ROLE_INSTRUCTIONS]", role_instructions.strip())
-        prompt = prompt.replace("[HISTORY]", "\n".join(history))
-        prompt = prompt.replace("[QUESTION]", question)
-        return prompt
+        system_content = (
+            base_template.replace("{name}", self.name)
+            .replace("[KNOWN_FACTS]", known_facts.strip())
+            .replace("[ROLE_INSTRUCTIONS]", role_instructions.strip())
+        )
 
-    def to_dict(self: Self) -> dict:
+        messages: list[dict[str, str]] = [{"role": "system", "content": system_content}]
+        detective_prefix = "Detective: "
+        agent_prefix = f"{self.name}: "
+        for entry in history:
+            if entry.startswith(detective_prefix):
+                messages.append({"role": "user", "content": entry[len(detective_prefix) :]})
+            elif entry.startswith(agent_prefix):
+                messages.append({"role": "assistant", "content": entry[len(agent_prefix) :]})
+            else:
+                messages.append({"role": "user", "content": entry})
+        messages.append({"role": "user", "content": question})
+        return messages
+
+    def to_dict(self) -> dict:
         return {
             "name": self.name,
             "role": self.role,
@@ -117,32 +160,42 @@ class Agent:
 
 
 class Game:
-    """Manages the state and logic of a single detective-vs-AIs game session."""
-
-    num_turns: int
-    agents: List[Agent]
-    histories: Dict[str, List[str]]
-    question_counts: Dict[str, int]
-    finished: bool
-    endgame_triggered: bool
-    decision: str
-    selected_ai: str
-    story: str
-    narrator_session_id: str | None
-    yanked: bool
+    """A single bounded detective-vs-AIs interrogation session."""
 
     def __init__(
         self: Self,
         story: str,
         num_turns: int = 5,
-        generated_prompts: Dict[str, str] | None = None,
+        generated_prompts: dict[str, str] | None = None,
         narrator_session_id: str | None = None,
+        user_id: str | None = None,
+        _skip_init: bool = False,
     ) -> None:
-        self.num_turns = num_turns
-        self.story = story
-        self.narrator_session_id = narrator_session_id
-        self.yanked = False
-        if torch.rand(1).item() > 0.5:
+        """Create a fresh Game.
+
+        When `_skip_init=True` no agents, histories, or counters are set —
+        this branch exists exclusively for `from_dict` to avoid re-rolling
+        the role assignment after deserialization. External callers should
+        always use the default.
+        """
+        self.story: str = story
+        self.num_turns: int = num_turns
+        self.narrator_session_id: str | None = narrator_session_id
+        self.yanked: bool = False
+        self.user_id: str | None = user_id
+        self.last_activity: str = _utcnow_iso()
+        if _skip_init:
+            self.agents: list[Agent] = []
+            self.histories: dict[str, list[str]] = {}
+            self.question_counts: dict[str, int] = {}
+            self.finished: bool = False
+            self.endgame_triggered: bool = False
+            self.decision: str = ""
+            self.selected_ai: str = ""
+            self.config_override: dict[str, Any] = {}
+            return
+
+        if random.random() > 0.5:
             self.agents = [
                 Agent("IA-1", TRUTHFUL, self.story, generated_prompts),
                 Agent("IA-2", DECEITFUL, self.story, generated_prompts),
@@ -158,24 +211,37 @@ class Game:
         self.endgame_triggered = False
         self.decision = ""
         self.selected_ai = self.agents[0].name
+        self.config_override = {}
 
-    def get_known_facts(self: Self) -> str | None:
-        """Get the known_facts from generated prompts if available."""
+    def touch(self) -> None:
+        """Update the last-activity timestamp."""
+        self.last_activity = _utcnow_iso()
+
+    def get_known_facts(self) -> str | None:
         if self.agents and self.agents[0].generated_prompts:
             return self.agents[0].generated_prompts.get("known_facts")
         return None
 
-    def next_turn(self: Self, agent_name: str, question: str, api_key: str | None = None) -> Dict[str, Any]:
+    def has_agent(self, agent_name: str) -> bool:
+        return any(a.name == agent_name for a in self.agents)
+
+    def next_turn(self, agent_name: str, question: str, api_key: str | None = None) -> dict[str, Any]:
         if self.finished:
             return {"error": "The game is over. Please start a new game."}
         if self.endgame_triggered and not self.finished:
             return {"error": "Endgame: Please make your final decision."}
+        if not self.has_agent(agent_name):
+            return {"error": f"Unknown agent: {agent_name}"}
         agent = next(a for a in self.agents if a.name == agent_name)
+        # history at this point does NOT include the new question. respond()
+        # appends it internally as the final user message.
+        answer = agent.respond(self.histories[agent_name], question, api_key, override=self.config_override or None)
+        # only after the model has answered do we extend the persisted history
         self.histories[agent_name].append(f"Detective: {question}")
-        answer = agent.respond(self.histories[agent_name], question, api_key)
         self.histories[agent_name].append(f"{agent.name}: {answer}")
         self.question_counts[agent_name] += 1
         agent.speak(answer, api_key)
+        self.touch()
         return {
             "agent": agent.name,
             "answer": answer,
@@ -188,12 +254,13 @@ class Game:
             return False
         return self.question_counts[agent_name] < self.num_turns
 
-    def make_decision(self, agent_name: str) -> Dict[str, Any]:
+    def make_decision(self, agent_name: str) -> dict[str, Any]:
         self.decision = agent_name
         self.finished = True
         agent = next(a for a in self.agents if a.name == agent_name)
         role_str = "truthful" if agent.role == TRUTHFUL else "deceitful"
         roles = {a.name: ("TRUTHFUL" if a.role == TRUTHFUL else "DECEITFUL") for a in self.agents}
+        self.touch()
         return {
             "result": f"You have chosen to shut off {agent_name} ({role_str} AI). The game is over.",
             "shut_off_role": role_str,
@@ -203,12 +270,14 @@ class Game:
     def manual_endgame(self) -> None:
         if not self.endgame_triggered:
             self.endgame_triggered = True
+            self.touch()
 
     def untrigger_endgame(self) -> None:
         if self.endgame_triggered and not self.finished:
             self.endgame_triggered = False
+            self.touch()
 
-    def to_dict(self: Self) -> dict:
+    def to_dict(self) -> dict:
         return {
             "num_turns": self.num_turns,
             "story": self.story,
@@ -221,14 +290,24 @@ class Game:
             "selected_ai": self.selected_ai,
             "narrator_session_id": self.narrator_session_id,
             "yanked": self.yanked,
+            "user_id": self.user_id,
+            "last_activity": self.last_activity,
+            "config_override": self.config_override,
         }
 
     @staticmethod
     def from_dict(data: dict) -> "Game":
+        """Restore a Game without re-rolling its role assignment.
+
+        Agent role assignment is recovered from the serialised agents; we
+        never invoke the constructor's coin-flip branch on resume.
+        """
         game = Game(
-            num_turns=data["num_turns"],
             story=data["story"],
+            num_turns=data["num_turns"],
             narrator_session_id=data.get("narrator_session_id"),
+            user_id=data.get("user_id"),
+            _skip_init=True,
         )
         game.agents = [Agent.from_dict(a) for a in data["agents"]]
         game.histories = data["histories"]
@@ -236,130 +315,173 @@ class Game:
         game.finished = data["finished"]
         game.endgame_triggered = data["endgame_triggered"]
         game.decision = data["decision"]
-        game.selected_ai = data["selected_ai"]
+        game.selected_ai = data.get("selected_ai") or (game.agents[0].name if game.agents else "")
         game.yanked = data.get("yanked", False)
+        game.last_activity = data.get("last_activity") or _utcnow_iso()
+        game.config_override = data.get("config_override") or {}
         return game
 
-    def is_over(self: Self) -> bool:
+    def is_over(self) -> bool:
         return self.finished
 
 
+# Strict regex for the JSON envelope the narrator emits. Used as a last-resort
+# extraction when the model wraps its JSON in surrounding chatter.
+_JSON_OBJECT_RE = re.compile(r"\{[\s\S]*\}")
+
+
 class NarratorSession:
-    """Manages the state and logic of a narrator conversation for story generation."""
+    """Off-game story-design dialogue used by AutoRogueAI."""
 
-    messages: List[Dict[str, str]]
-    message_count: int
-    max_messages: int
-    generated_prompts: Dict[str, str] | None
-    base_prompt: str | None
-    audio_cache: Dict[int, bytes]
-    yanked: bool
-    pre_yank: bool
-    game_session_id: str | None
-    completed: bool
-
-    def __init__(self: Self, max_messages: int = 5) -> None:
-        self.messages: List[Dict[str, str]] = []
+    def __init__(self, max_messages: int = 5, user_id: str | None = None) -> None:
+        self.messages: list[dict[str, str]] = []
         self.message_count: int = 0
         self.max_messages: int = max_messages
-        self.generated_prompts: Dict[str, str] | None = None
+        self.generated_prompts: dict[str, str] | None = None
         self.base_prompt: str | None = None
-        self.audio_cache: Dict[int, bytes] = {}
+        self.audio_cache: dict[int, bytes] = {}
         self.yanked: bool = False
         self.pre_yank: bool = False
         self.game_session_id: str | None = None
         self.completed: bool = False
+        self.user_id: str | None = user_id
+        self.last_activity: str = _utcnow_iso()
 
-    def add_message(self: Self, role: str, content: str) -> None:
-        """Add a message to the conversation."""
+    def touch(self) -> None:
+        self.last_activity = _utcnow_iso()
+
+    def add_message(self, role: str, content: str) -> None:
         self.messages.append({"role": role, "content": content})
         if role == "user":
             self.message_count += 1
+        self.touch()
 
-    def can_send_message(self: Self) -> bool:
-        """Check if user can send more messages."""
+    def can_send_message(self) -> bool:
         return self.message_count < self.max_messages
 
-    def get_conversation_context(self: Self) -> List[Dict[str, str]]:
-        """Get conversation context for OpenAI API."""
+    def get_conversation_context(self) -> list[dict[str, str]]:
         return self.messages
 
-    def generate_prompts(self: Self, api_key: str | None = None) -> Dict[str, str]:
-        """Generate story prompts based on conversation."""
-        from utils import query_openai_with_messages
+    def generate_prompts(self, api_key: str | None = None) -> dict[str, str]:
+        """Generate a (known_facts, truthful, deceitful) triple from the design conversation.
 
-        # Build generation prompt
-        base_path: str = os.path.join(os.path.dirname(__file__), ".prompts")
-        with open(os.path.join(base_path, "narrator_generation.txt"), "r") as f:
-            generation_instructions: str = f.read()
+        The narrator is asked to respond in strict JSON; failure to do so
+        triggers a single retry with an explicit reminder, after which we
+        raise. This replaces the previous regex-marker parser which silently
+        produced empty triples on malformed output.
+        """
+        generation_instructions = read_prompt_file("narrator_generation.txt")
 
-        # Create messages for prompt generation
         if self.message_count == 0:
-            # Autonomous generation: no user input
-            user_prompt = "Generate a creative and engaging scenario autonomously. Create the three required prompts for an original story."
+            user_prompt = (
+                "Generate a creative and engaging scenario autonomously. "
+                "Create the three required prompts for an original story."
+            )
         else:
-            # User-guided generation: based on conversation
-            conversation_summary = "\n\n".join([f"{msg['role'].upper()}: {msg['content']}" for msg in self.messages])
+            conversation_summary = "\n\n".join(f"{msg['role'].upper()}: {msg['content']}" for msg in self.messages)
             user_prompt = f"Based on this conversation, generate the three required prompts:\n\n{conversation_summary}"
 
-        generation_prompt = [
-            {"role": "system", "content": generation_instructions},
+        prompts = self._invoke_and_parse(
+            system_prompt=generation_instructions,
+            user_prompt=user_prompt,
+            api_key=api_key,
+        )
+        if not all(prompts.get(k) for k in ("known_facts", "truthful", "deceitful")):
+            # one retry with an explicit JSON-only nudge
+            retry_user = user_prompt + (
+                "\n\nIMPORTANT: respond with a single JSON object only — "
+                '{"known_facts": "...", "truthful": "...", "deceitful": "..."}. '
+                "No prose, no markers, no surrounding text."
+            )
+            prompts = self._invoke_and_parse(
+                system_prompt=generation_instructions,
+                user_prompt=retry_user,
+                api_key=api_key,
+            )
+            if not all(prompts.get(k) for k in ("known_facts", "truthful", "deceitful")):
+                raise RuntimeError("narrator failed to produce a complete prompt triple")
+
+        self.generated_prompts = prompts
+        self.base_prompt = read_prompt_file("base.txt")
+        self.touch()
+        return prompts
+
+    def _invoke_and_parse(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        api_key: str | None,
+    ) -> dict[str, str]:
+        messages = [
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ]
+        response = query_openai_with_messages(messages, role=NARRATOR, api_key=api_key)
+        return self._parse_generated_prompts(response)
+
+    @staticmethod
+    def _parse_generated_prompts(response: str) -> dict[str, str]:
+        """Parse a (known_facts, truthful, deceitful) triple from a narrator response.
+
+        Prefers strict JSON. If the model wraps JSON in surrounding text or
+        a markdown fence, we extract the first {...} block. Falls back to
+        the legacy marker-based parser for backward compatibility with old
+        responses; empty fields are returned if all paths fail.
+        """
+        prompts = {"known_facts": "", "truthful": "", "deceitful": ""}
+        if not response:
+            return prompts
+
+        candidate = response.strip()
+        if candidate.startswith("```"):
+            # strip the first and last fenced-code blocks
+            candidate = re.sub(r"^```[a-zA-Z]*\s*", "", candidate)
+            candidate = re.sub(r"\s*```$", "", candidate)
 
         try:
-            response: str = query_openai_with_messages(generation_prompt, api_key=api_key)
-            # Parse response to extract three prompts
-            prompts = self._parse_generated_prompts(response)
-            self.generated_prompts = prompts
+            parsed = json.loads(candidate)
+        except json.JSONDecodeError:
+            match = _JSON_OBJECT_RE.search(candidate)
+            parsed = None
+            if match:
+                try:
+                    parsed = json.loads(match.group(0))
+                except json.JSONDecodeError:
+                    parsed = None
 
-            # Load base prompt
-            with open(os.path.join(base_path, "base.txt"), "r") as f:
-                self.base_prompt = f.read()
-
+        if isinstance(parsed, dict):
+            for key in prompts:
+                value = parsed.get(key)
+                if isinstance(value, str):
+                    prompts[key] = value.strip()
             return prompts
-        except Exception as e:
-            logger.error(f"Failed to generate prompts: {e}")
-            raise
 
-    def _parse_generated_prompts(self: Self, response: str) -> Dict[str, str]:
-        """Parse the three prompts from AI response."""
-        prompts = {"known_facts": "", "truthful": "", "deceitful": ""}
-
-        # Simple parsing logic - look for markers
-        lines = response.split("\n")
-        current_section = None
-
-        for line in lines:
+        # legacy marker-based fallback (kept for old prompts that emit markers)
+        current_section: str | None = None
+        for line in candidate.splitlines():
             line_upper = line.upper().strip()
             if "KNOWN FACTS" in line_upper or "KNOWN_FACTS" in line_upper:
                 current_section = "known_facts"
                 continue
-            elif "TRUTHFUL" in line_upper and "DECEITFUL" not in line_upper:
+            if "TRUTHFUL" in line_upper and "DECEITFUL" not in line_upper:
                 current_section = "truthful"
                 continue
-            elif "DECEITFUL" in line_upper:
+            if "DECEITFUL" in line_upper:
                 current_section = "deceitful"
                 continue
-
             if current_section and line.strip() and not line.strip().startswith("==="):
                 prompts[current_section] += line + "\n"
-
-        # Clean up prompts
-        for key in prompts:
-            prompts[key] = prompts[key].strip()
-
+        for key, value in prompts.items():
+            prompts[key] = value.strip()
         return prompts
 
-    def store_audio(self: Self, message_index: int, audio_data: bytes) -> None:
-        """Store audio for a message."""
+    def store_audio(self, message_index: int, audio_data: bytes) -> None:
         self.audio_cache[message_index] = audio_data
 
-    def get_audio(self: Self, message_index: int) -> bytes | None:
-        """Get audio for a message."""
+    def get_audio(self, message_index: int) -> bytes | None:
         return self.audio_cache.get(message_index)
 
-    def to_dict(self: Self) -> dict:
+    def to_dict(self) -> dict:
         return {
             "messages": self.messages,
             "message_count": self.message_count,
@@ -370,11 +492,16 @@ class NarratorSession:
             "pre_yank": self.pre_yank,
             "game_session_id": self.game_session_id,
             "completed": self.completed,
+            "user_id": self.user_id,
+            "last_activity": self.last_activity,
         }
 
     @staticmethod
     def from_dict(data: dict) -> "NarratorSession":
-        session = NarratorSession(max_messages=data.get("max_messages", 5))
+        session = NarratorSession(
+            max_messages=data.get("max_messages", 5),
+            user_id=data.get("user_id"),
+        )
         session.messages = data.get("messages", [])
         session.message_count = data.get("message_count", 0)
         session.generated_prompts = data.get("generated_prompts")
@@ -384,4 +511,5 @@ class NarratorSession:
         session.pre_yank = data.get("pre_yank", False)
         session.game_session_id = data.get("game_session_id")
         session.completed = data.get("completed", False)
+        session.last_activity = data.get("last_activity") or _utcnow_iso()
         return session
